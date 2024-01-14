@@ -127,9 +127,9 @@ class TextPolicyToBatchedTextPolicy(BatchedTextPolicy):
         self.policy = policy
     
     def act(self, text_history: List[Optional[TextHistory]], done: Optional[List[bool]]=None) -> List[Optional[TextHistory]]:
-        print(done)
-        print(text_history)
-        print(len(text_history))
+        # print(done)
+        # print(text_history)
+        # print(len(text_history))
         if done is None:
             done = [False]*len(text_history)
         assert len(text_history) == len(done)

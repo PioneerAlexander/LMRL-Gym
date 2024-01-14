@@ -1,5 +1,6 @@
 from typing import Optional, List
 import tyro
+from torch.random import manual_seed
 from JaxSeq.bucket_manager import open_with_bucket as open
 from JaxSeq.utils import convert_path, load_mesh, setup_experiment_save, MapIterable, BlockingStrategy, Padding, Truncation
 import jax
@@ -7,10 +8,11 @@ import jax.numpy as jnp
 from JaxSeq.utils import get_weight_decay_mask
 import os
 import optax
+from JaxSeq.checkpointing import load_pytree, save_pytree
 from JaxSeq.models.gpt2.interface import GPT2Train, GPT2Inference
 from JaxSeq.models.gpt2.load import load_train_state, ModelLoadMode
 import pickle as pkl
-from JaxSeq.data import Seq2SeqIterableDataset
+from JaxSeq.data import Seq2SeqIterableDataset, Seq2SeqDataset
 from JaxSeq.train import eval_loss, train_loop
 from jaxtyping import PyTree
 import re
@@ -41,8 +43,8 @@ def main(
     fsdp_mesh_shape: int=1, 
     model_mesh_shape: int=-1, 
 
-    use_wandb: bool=False, 
-    wandb_project: Optional[str]=None, 
+    use_wandb: bool=True, 
+    wandb_project: Optional[str]="bc_maze", 
 
     epochs: int=1, 
     max_steps: Optional[int]=None, 
@@ -89,7 +91,8 @@ def main(
     force_pad_embeddings: bool=False, 
 
     should_restore_loop_state: bool=False, 
-    traj_max_length:int=40
+    traj_max_length:int=40,
+    seed:int = 0,
 ):
     input_args = locals()
     print(input_args)
@@ -105,14 +108,16 @@ def main(
     with open(convert_path(train_data_path), "r") as f:
         all_items = list(f)
     # create splits
-    random.seed(0)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.random.manual_seed(seed)
     random.shuffle(all_items)
     train_items = all_items[:int(len(all_items)*eval_frac)]
     eval_items = all_items[int(len(all_items)*eval_frac):]
     
     def str_iterable(items: List[str]):
         for item in items:
-            obj = json.loads(item)
+            obj = json.loads(item)[0]
             yield {"in_text": obj["state"], "out_text": obj["action"]}
             # for i in range(0, len(obj['text_history']), 2):
             #     start_idx = max(0, i-traj_max_length)
@@ -120,39 +125,71 @@ def main(
             #     out_text = obj['text_history'][i+1]
             #     yield {"in_text":in_text, "out_text":out_text}
     
-    train_data = Seq2SeqIterableDataset.from_str_iterable(
-        MapIterable(
-            lambda x: (tokenizer.bos_token+x['in_text'].removeprefix(tokenizer.bos_token), x['out_text']), 
-            str_iterable(train_items)), 
-        tokenizer=tokenizer, 
-        in_blocking_strategy=BlockingStrategy(
-            padding=Padding.LEFT, 
-            truncation=Truncation.LEFT, 
-            max_length=max_input_length, 
-        ), 
-        out_blocking_strategy=BlockingStrategy(
-            padding=Padding.RIGHT, 
-            truncation=Truncation.RIGHT, 
-            max_length=max_output_length
-        ), 
-    )
+    if epochs == 1:
+        train_data = Seq2SeqIterableDataset.from_str_iterable(
+            MapIterable(
+                lambda x: (tokenizer.bos_token + x['in_text'].removeprefix(tokenizer.bos_token), x['out_text']),
+                str_iterable(train_items)),
+            tokenizer=tokenizer,
+            in_blocking_strategy=BlockingStrategy(
+                padding=Padding.LEFT,
+                truncation=Truncation.LEFT,
+                max_length=max_input_length,
+            ),
+            out_blocking_strategy=BlockingStrategy(
+                padding=Padding.RIGHT,
+                truncation=Truncation.RIGHT,
+                max_length=max_output_length
+            ),
+        )
 
-    eval_data = Seq2SeqIterableDataset.from_str_iterable(
-        MapIterable(
-            lambda x: (tokenizer.bos_token+x['in_text'].removeprefix(tokenizer.bos_token), x['out_text']), 
-            str_iterable(eval_items)), 
-        tokenizer=tokenizer, 
-        in_blocking_strategy=BlockingStrategy(
-            padding=Padding.LEFT, 
-            truncation=Truncation.LEFT, 
-            max_length=max_input_length, 
-        ), 
-        out_blocking_strategy=BlockingStrategy(
-            padding=Padding.RIGHT, 
-            truncation=Truncation.RIGHT, 
-            max_length=max_output_length, 
-        ), 
-    )
+        eval_data = Seq2SeqIterableDataset.from_str_iterable(
+            MapIterable(
+                lambda x: (tokenizer.bos_token + x['in_text'].removeprefix(tokenizer.bos_token), x['out_text']),
+                str_iterable(eval_items)),
+            tokenizer=tokenizer,
+            in_blocking_strategy=BlockingStrategy(
+                padding=Padding.LEFT,
+                truncation=Truncation.LEFT,
+                max_length=max_input_length,
+            ),
+            out_blocking_strategy=BlockingStrategy(
+                padding=Padding.RIGHT,
+                truncation=Truncation.RIGHT,
+                max_length=max_output_length,
+            ),
+        )
+    else:
+        train_data = Seq2SeqDataset.from_str_list(
+            train_items,
+            tokenizer=tokenizer,
+            in_blocking_strategy=BlockingStrategy(
+                padding=Padding.LEFT,
+                truncation=Truncation.LEFT,
+                max_length=max_input_length,
+            ),
+            out_blocking_strategy=BlockingStrategy(
+                padding=Padding.RIGHT,
+                truncation=Truncation.RIGHT,
+                max_length=max_output_length
+            ),
+        )
+
+        eval_data = Seq2SeqDataset.from_str_list(
+            eval_items,
+            tokenizer=tokenizer,
+            in_blocking_strategy=BlockingStrategy(
+                padding=Padding.LEFT,
+                truncation=Truncation.LEFT,
+                max_length=max_input_length,
+            ),
+            out_blocking_strategy=BlockingStrategy(
+                padding=Padding.RIGHT,
+                truncation=Truncation.RIGHT,
+                max_length=max_output_length,
+            ),
+        )
+
 
     def optim_getter(params: PyTree):
         mask = get_weight_decay_mask((
@@ -180,7 +217,7 @@ def main(
             return optax.MultiSteps(optim, every_k_schedule=grad_accum_steps)
         return optim
 
-    model_prng_key = jax.random.PRNGKey(2)
+    model_prng_key = jax.random.PRNGKey(seed)
     train_state, model = load_train_state(
         model_load_mode=model_load_mode, 
         model_load_path=convert_path(model_load_path) if model_load_mode != ModelLoadMode.HF else model_load_path, 
@@ -237,7 +274,7 @@ def main(
         data_results = eval_loss(
             inference=inference, 
             dataset=eval_data, 
-            prng_key=jax.random.PRNGKey(1), 
+            prng_key=jax.random.PRNGKey(seed), 
             bsize=4, 
             eval_batches=64, 
         )
@@ -337,7 +374,7 @@ def main(
 
     #     return loss_metrics['loss'], {'loss_metrics': loss_metrics, 'move_accuracy': move_accuracy}
     
-    train_prng = jax.random.PRNGKey(1)
+    train_prng = jax.random.PRNGKey(seed)
     save_dtype = jnp.bfloat16 if save_bf16 else jnp.float32
     trainer, inference = train_loop(
         trainer=trainer, 
@@ -369,6 +406,9 @@ def main(
         is_main_process=is_main_process, 
         **loop_state, 
     )
+    best_dir = convert_path(os.path.join(save_dir, "best"))
+    params = load_pytree(os.path.join(best_dir, 'train_state.msgpack'))['params']
+    save_pytree(params, os.path.join(best_dir, 'params.msgpack'))
 
 if __name__ == "__main__":
     tyro.cli(main)
