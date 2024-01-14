@@ -14,7 +14,7 @@ command:
   - llm_rl_scripts.maze.bc.fully_observed_bc
   - HF
   - gpt2
-  - datasets/maze/fully_observed_maze_data.jsonl
+  - datasets/fully_observed_maze_data.jsonl
   - --outputs-path=bc_checkpoint_path_100
   - --epochs=10
   - --train_bsize=1
