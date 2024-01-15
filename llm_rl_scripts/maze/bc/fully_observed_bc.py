@@ -77,7 +77,7 @@ def main(
     save_every_steps: Optional[int]=None, 
     save_every_epochs: Optional[int]=None, 
     save_at_beginning: bool=False, 
-    save_at_end: bool=False, 
+    save_at_end: bool=True, 
     save_best: bool=True, 
     max_checkpoints: Optional[int]=None, 
     save_train_state: bool=True, 
@@ -110,7 +110,7 @@ def main(
     # create splits
     random.seed(seed)
     np.random.seed(seed)
-    torch.random.manual_seed(seed)
+    manual_seed(seed)
     random.shuffle(all_items)
     train_items = all_items[:int(len(all_items)*eval_frac)]
     eval_items = all_items[int(len(all_items)*eval_frac):]
