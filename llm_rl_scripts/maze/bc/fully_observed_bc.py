@@ -29,7 +29,10 @@ from llm_rl_scripts.maze.env.env import maze_proposal_function
 from llm_rl_scripts.maze.env.maze_utils import pick_start_position, setup_maze_env
 from llm_rl_scripts.maze.env.mazes import double_t_maze
 from transformers.generation import GenerationConfig
+
+
 from LLM_RL.algorithms.ppo.gpt2.interface import GPT2PPOPolicy
+from get_inference_params import flatten_dict
 
 def main(
     model_load_mode: ModelLoadMode, 
@@ -37,7 +40,7 @@ def main(
     train_data_path: str,
 
     /,  # Mark the end of positional arguments.
-    eval_frac: float=0.1,
+    eval_frac: float=0.9,
     exp_name: Optional[str]=None, 
     outputs_path: Optional[str]=None, 
 
@@ -392,7 +395,7 @@ def main(
     #     eval_round += 1
 
     #     return loss_metrics['loss'], {'loss_metrics': loss_metrics, 'move_accuracy': move_accuracy}
-    
+    flatten_dict(inference.params)
     train_prng = jax.random.PRNGKey(seed)
     save_dtype = jnp.bfloat16 if save_bf16 else jnp.float32
     trainer, inference = train_loop(
