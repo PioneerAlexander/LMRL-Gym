@@ -36,7 +36,7 @@ def main(
     train_data_path: str,
 
     /,  # Mark the end of positional arguments.
-    eval_frac: float=0.1,
+    eval_frac: float=0.9,
     exp_name: Optional[str]=None, 
     outputs_path: Optional[str]=None, 
 
@@ -224,7 +224,7 @@ def main(
     )
 
     save_dir, exp_name = setup_experiment_save(
-        exp_name=exp_name, 
+        exp_name=str(seed), 
         outputs_path=convert_path(outputs_path), 
         input_args=input_args, 
         script__file__=__file__, 
