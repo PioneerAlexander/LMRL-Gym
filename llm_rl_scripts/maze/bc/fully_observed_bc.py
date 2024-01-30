@@ -1,6 +1,5 @@
 from typing import Optional, List
 import tyro
-from torch.random import manual_seed
 from JaxSeq.bucket_manager import open_with_bucket as open
 from JaxSeq.utils import convert_path, load_mesh, setup_experiment_save, MapIterable, BlockingStrategy, Padding, Truncation
 import jax
@@ -8,11 +7,10 @@ import jax.numpy as jnp
 from JaxSeq.utils import get_weight_decay_mask
 import os
 import optax
-from JaxSeq.checkpointing import load_pytree, save_pytree
 from JaxSeq.models.gpt2.interface import GPT2Train, GPT2Inference
 from JaxSeq.models.gpt2.load import load_train_state, ModelLoadMode
 import pickle as pkl
-from JaxSeq.data import Seq2SeqIterableDataset, Seq2SeqDataset
+from JaxSeq.data import Seq2SeqDataset
 from JaxSeq.train import eval_loss, train_loop
 from jaxtyping import PyTree
 import re
@@ -21,6 +19,7 @@ import json
 import numpy as np
 from transformers import AutoTokenizer
 from JaxSeq.bucket_manager import open_with_bucket as open
+from LLM_RL.algorithms.ppo.gpt2.interface import GPT2PPOPolicy
 from LLM_RL.algorithms.ppo.reranker_policy import ReRankerSamplePolicy
 from LLM_RL.algorithms.ppo.score_fn import build_bc_score_fn
 import random
@@ -29,10 +28,7 @@ from llm_rl_scripts.maze.env.env import maze_proposal_function
 from llm_rl_scripts.maze.env.maze_utils import pick_start_position, setup_maze_env
 from llm_rl_scripts.maze.env.mazes import double_t_maze
 from transformers.generation import GenerationConfig
-
-
-from LLM_RL.algorithms.ppo.gpt2.interface import GPT2PPOPolicy
-from get_inference_params import flatten_dict
+from torch.random import manual_seed
 
 def main(
     model_load_mode: ModelLoadMode, 
@@ -40,7 +36,7 @@ def main(
     train_data_path: str,
 
     /,  # Mark the end of positional arguments.
-    eval_frac: float=0.9,
+    eval_frac: float=0.1,
     exp_name: Optional[str]=None, 
     outputs_path: Optional[str]=None, 
 
@@ -48,8 +44,8 @@ def main(
     fsdp_mesh_shape: int=1, 
     model_mesh_shape: int=-1, 
 
-    use_wandb: bool=True, 
-    wandb_project: Optional[str]="bc_maze", 
+    use_wandb: bool=False, 
+    wandb_project: Optional[str]=None, 
 
     epochs: int=1, 
     max_steps: Optional[int]=None, 
@@ -58,8 +54,8 @@ def main(
     init_lr: float=0.0, 
     end_lr: float=0.0001, 
     lr: float=0.0001, 
-    lr_warmup_steps: int=1000, 
-    lr_decay_steps: int=1001, # no decay, so just needs to be > warmup steps
+    lr_warmup_steps: int=1, 
+    lr_decay_steps: int=2, # no decay, so just needs to be > warmup steps
     bf16_momentum: bool=False, 
     multiply_by_parameter_scale: bool=True, 
 
@@ -71,7 +67,13 @@ def main(
     bf16_activations: bool=False, 
 
     max_input_length: int=256, 
-    max_output_length: int=16, 
+    max_output_length: int=8, 
+
+    policy_do_sample: bool=True, 
+    policy_num_beams: int=1, 
+    policy_temperature: Optional[float]=None, 
+    policy_top_p: Optional[float]=None, 
+    policy_top_k: Optional[int]=None,
 
     log_every: int=256, 
     eval_every_steps: Optional[int]=256, 
@@ -82,7 +84,7 @@ def main(
     save_every_steps: Optional[int]=None, 
     save_every_epochs: Optional[int]=None, 
     save_at_beginning: bool=False, 
-    save_at_end: bool=True, 
+    save_at_end: bool=False, 
     save_best: bool=True, 
     max_checkpoints: Optional[int]=None, 
     save_train_state: bool=True, 
@@ -97,13 +99,7 @@ def main(
 
     should_restore_loop_state: bool=False, 
     traj_max_length:int=40,
-    seed:int = 0,
-
-    policy_do_sample: bool=True, 
-    policy_num_beams: int=1, 
-    policy_temperature: Optional[float]=None, 
-    policy_top_p: Optional[float]=None, 
-    policy_top_k: Optional[int]=None,
+    seed:int=0,
 ):
     input_args = locals()
     print(input_args)
@@ -115,92 +111,57 @@ def main(
     is_main_process = jax.process_index() == 0
     print(f"Mesh: {mesh}")
     print(f"Is main process: {is_main_process}")
-    
-    with open(convert_path(train_data_path), "r") as f:
+    with open(convert_path(train_data_path, ""), "r") as f:
         all_items = list(f)
+    
+    def str_lst(items: List[str]):
+        lst = []
+        for item in items:
+            obj = json.loads(item)
+            for state_action_pair in obj:
+                lst.append((state_action_pair["state"], state_action_pair["action"]))
+        return lst
+    
     # create splits
+    data_lst = str_lst(all_items)
     random.seed(seed)
     np.random.seed(seed)
     manual_seed(seed)
-    random.shuffle(all_items)
-    train_items = all_items[:int(len(all_items)*eval_frac)]
-    eval_items = all_items[int(len(all_items)*eval_frac):]
+
+    random.shuffle(data_lst)
+    train_lst = data_lst[:int(len(data_lst)*eval_frac)]
+    eval_lst = data_lst[int(len(data_lst)*eval_frac):]
     
-    def str_iterable(items: List[str]):
-        for item in items:
-            obj = json.loads(item)[0]
-            yield {"in_text": obj["state"], "out_text": obj["action"]}
-            # for i in range(0, len(obj['text_history']), 2):
-            #     start_idx = max(0, i-traj_max_length)
-            #     in_text = " ".join(obj['text_history'][start_idx:i+1])
-            #     out_text = obj['text_history'][i+1]
-            #     yield {"in_text":in_text, "out_text":out_text}
     
-    if epochs == 1:
-        train_data = Seq2SeqIterableDataset.from_str_iterable(
-            MapIterable(
-                lambda x: (tokenizer.bos_token + x['in_text'].removeprefix(tokenizer.bos_token), x['out_text']),
-                str_iterable(train_items)),
-            tokenizer=tokenizer,
-            in_blocking_strategy=BlockingStrategy(
-                padding=Padding.LEFT,
-                truncation=Truncation.LEFT,
-                max_length=max_input_length,
-            ),
-            out_blocking_strategy=BlockingStrategy(
-                padding=Padding.RIGHT,
-                truncation=Truncation.RIGHT,
-                max_length=max_output_length
-            ),
-        )
+    train_data = Seq2SeqDataset.from_str_list(
+        train_lst, 
+        tokenizer=tokenizer, 
+        in_blocking_strategy=BlockingStrategy(
+            padding=Padding.LEFT, 
+            truncation=Truncation.LEFT, 
+            max_length=max_input_length, 
+        ), 
+        out_blocking_strategy=BlockingStrategy(
+            padding=Padding.RIGHT, 
+            truncation=Truncation.RIGHT, 
+            max_length=max_output_length
+        ), 
+    )
 
-        eval_data = Seq2SeqIterableDataset.from_str_iterable(
-            MapIterable(
-                lambda x: (tokenizer.bos_token + x['in_text'].removeprefix(tokenizer.bos_token), x['out_text']),
-                str_iterable(eval_items)),
-            tokenizer=tokenizer,
-            in_blocking_strategy=BlockingStrategy(
-                padding=Padding.LEFT,
-                truncation=Truncation.LEFT,
-                max_length=max_input_length,
-            ),
-            out_blocking_strategy=BlockingStrategy(
-                padding=Padding.RIGHT,
-                truncation=Truncation.RIGHT,
-                max_length=max_output_length,
-            ),
-        )
-    else:
-        train_data = Seq2SeqDataset.from_str_list(
-            train_items,
-            tokenizer=tokenizer,
-            in_blocking_strategy=BlockingStrategy(
-                padding=Padding.LEFT,
-                truncation=Truncation.LEFT,
-                max_length=max_input_length,
-            ),
-            out_blocking_strategy=BlockingStrategy(
-                padding=Padding.RIGHT,
-                truncation=Truncation.RIGHT,
-                max_length=max_output_length
-            ),
-        )
-
-        eval_data = Seq2SeqDataset.from_str_list(
-            eval_items,
-            tokenizer=tokenizer,
-            in_blocking_strategy=BlockingStrategy(
-                padding=Padding.LEFT,
-                truncation=Truncation.LEFT,
-                max_length=max_input_length,
-            ),
-            out_blocking_strategy=BlockingStrategy(
-                padding=Padding.RIGHT,
-                truncation=Truncation.RIGHT,
-                max_length=max_output_length,
-            ),
-        )
-
+    eval_data = Seq2SeqDataset.from_str_list(
+        eval_lst, 
+        tokenizer=tokenizer, 
+        in_blocking_strategy=BlockingStrategy(
+            padding=Padding.LEFT, 
+            truncation=Truncation.LEFT, 
+            max_length=max_input_length, 
+        ), 
+        out_blocking_strategy=BlockingStrategy(
+            padding=Padding.RIGHT, 
+            truncation=Truncation.RIGHT, 
+            max_length=max_output_length, 
+        ), 
+    )
 
     def optim_getter(params: PyTree):
         mask = get_weight_decay_mask((
@@ -285,7 +246,7 @@ def main(
         data_results = eval_loss(
             inference=inference, 
             dataset=eval_data, 
-            prng_key=jax.random.PRNGKey(seed), 
+            prng_key=jax.random.PRNGKey(1), 
             bsize=4, 
             eval_batches=64, 
         )
@@ -325,77 +286,7 @@ def main(
         # avg_position_results = results["avg_reward"]
         #TODO: accuracy metric
         return data_results['loss'], {'data': data_results, 'sample_env': results}
-
     
-    # eval_prng = jax.random.PRNGKey(0)
-    # eval_round = 0
-    # def evaluator(inference: GPT2Inference):
-    #     nonlocal eval_prng
-    #     nonlocal eval_round
-
-    #     loss_metrics = eval_loss(
-    #         inference=inference, 
-    #         dataset=eval_data, 
-    #         prng_key=None, 
-    #         bsize=eval_loss_bsize, 
-    #         eval_batches=eval_loss_batches, 
-    #     )
-
-    #     generation_examples = []
-    #     with open(convert_path(eval_data_path), 'r') as f:
-    #         for item in jsonl_stream(f):
-    #             if len(generation_examples) >= generation_bsize*generation_batches:
-    #                 break
-    #             generation_examples.append(item)
-        
-    #     eval_prng, new_prng = jax.random.split(eval_prng)
-    #     generation_data = generate_language(
-    #         inference=inference, 
-    #         prompts=list(map(lambda x: tokenizer.bos_token+x['in_text'].removeprefix(tokenizer.bos_token), generation_examples)), 
-    #         references=list(map(lambda x: x['stockfish_actions'], generation_examples)), 
-    #         prng_key=new_prng, 
-    #         bsize=generation_bsize, 
-    #         generation_batches=generation_batches, 
-    #         blocking_strategy=BlockingStrategy(
-    #             padding=Padding.LEFT, 
-    #             truncation=Truncation.LEFT, 
-    #             max_length=max_input_length
-    #         ), 
-    #         generation_config=GenerationConfig(
-    #             max_length=max_input_length+max_output_length, 
-    #             do_sample=False, 
-    #             num_beams=1, 
-    #             pad_token_id=tokenizer.pad_token_id, 
-    #             eos_token_id=tokenizer.encode('\n')[0], 
-    #             temperature=None, 
-    #             top_k=None, 
-    #             top_p=None, 
-    #         ), 
-    #     )
-
-    #     for item in generation_data:
-    #         generation = item['generation'].split('\n', 1)[1].replace(" ", "").strip()
-    #         refs = list(map(lambda x: x.replace(" ", "").strip(), item['reference']))
-    #         item['parsed_generation'] = generation
-    #         item['refs'] = refs
-    #         item['move_match'] = float(item['parsed_generation'] in item['refs'])
-
-    #     if save_dir is not None:
-    #         generations_save_dir = os.path.join(save_dir, 'generations', str(eval_round))
-    #         if is_main_process:
-    #             create_path(generations_save_dir)
-    #         with open(get_enabled_save_path(
-    #             os.path.join(generations_save_dir, 'generations.json'), 
-    #             enabled=is_main_process, 
-    #         ), 'w') as f:
-    #             json.dump(generation_data, f)
-        
-    #     move_accuracy = np.mean(list(map(lambda x: x['move_match'], generation_data)))
-
-    #     eval_round += 1
-
-    #     return loss_metrics['loss'], {'loss_metrics': loss_metrics, 'move_accuracy': move_accuracy}
-    flatten_dict(inference.params)
     train_prng = jax.random.PRNGKey(seed)
     save_dtype = jnp.bfloat16 if save_bf16 else jnp.float32
     trainer, inference = train_loop(
@@ -428,9 +319,6 @@ def main(
         is_main_process=is_main_process, 
         **loop_state, 
     )
-    best_dir = convert_path(os.path.join(save_dir, "best"))
-    params = load_pytree(os.path.join(best_dir, 'train_state.msgpack'))['params']
-    save_pytree(params, os.path.join(best_dir, 'params.msgpack'))
 
 if __name__ == "__main__":
     tyro.cli(main)
