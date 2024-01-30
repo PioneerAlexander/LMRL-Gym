@@ -223,13 +223,8 @@ def main(
         tokenizer=tokenizer, 
     )
 
-    save_dir, exp_name = setup_experiment_save(
-        exp_name=str(seed), 
-        outputs_path=convert_path(outputs_path), 
-        input_args=input_args, 
-        script__file__=__file__, 
-        is_main_process=is_main_process, 
-    )
+    save_dir = outputs_path + "/" + str(seed)
+    exp_name = str(seed)
     
     maze_name = "double_t_maze"
     describe_function = "describe_observation_only_walls"
