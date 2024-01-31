@@ -16,9 +16,11 @@ command:
   - gpt2
   - datasets/fully_observed_maze_data.jsonl
   - --outputs-path=bc_train_maze_checkpoints
-  - --epochs=1
-  - --train_bsize=32
-  - --eval_frac=0.01
-  - --save_every_epochs=1
+  - --epochs=50
+  - --train_bsize=128
+  - --eval_frac=0.9
+  - --save_every_epochs=10
   - --save_at_end
+  - --use_wandb
+  - --wandb_project=bc_maze
   - ${args}
