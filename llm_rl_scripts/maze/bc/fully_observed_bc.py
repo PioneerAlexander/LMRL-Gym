@@ -29,6 +29,7 @@ from llm_rl_scripts.maze.env.maze_utils import pick_start_position, setup_maze_e
 from llm_rl_scripts.maze.env.mazes import double_t_maze
 from transformers.generation import GenerationConfig
 from torch.random import manual_seed
+import wandb
 
 def main(
     model_load_mode: ModelLoadMode, 
@@ -247,9 +248,10 @@ def main(
         )
         
         results = {}
-        for position in possible_positions:
+        mean_rewards = np.empty((25,))
+        for idx, position in enumerate(possible_positions):
             position = tuple(position)
-            _, results[str(position)] = text_env_eval(
+            _, results[str(position)], mean_reward = text_env_eval(
                 env=env, 
                 policy = GPT2PPOPolicy(
                     inference=inference, 
@@ -278,8 +280,11 @@ def main(
                 env_options={"init_position": position},
                 # save_config=None, 
             )
+            mean_rewards[idx] = mean_reward["mean"]
+
         # avg_position_results = results["avg_reward"]
         #TODO: accuracy metric
+        wandb.log({"score": np.mean(mean_rewards)})
         return data_results['loss'], {'data': data_results, 'sample_env': results}
     
     train_prng = jax.random.PRNGKey(seed)

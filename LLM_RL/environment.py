@@ -218,7 +218,7 @@ def text_env_eval(
     interaction_callback: Optional[Callable[[List[Tuple[TextHistory, TextHistory, TextHistory, float, bool]]], None]]=None, 
     bsize: int=1, 
     verbose: bool=True, 
-) -> Tuple[List[List[InteractionTransition]], Dict[str, Any]]:
+) -> Tuple[List[List[InteractionTransition]], Dict[str, Any], Dict[str, Any]]:
     interactions, rewards, dones, eps_lengths = [], [], [], []
     for _ in tqdm(range((n_rollouts+(bsize-1))//bsize), disable=not verbose):
         actual_bsize = min(n_rollouts-len(interactions), bsize)
@@ -264,7 +264,7 @@ def text_env_eval(
         ),
     )
     
-    return interactions, results_summary
+    return interactions, results_summary, {"mean": np.mean(rewards)}
 
 # user policy
 
