@@ -35,6 +35,7 @@ from llm_rl_scripts.maze.env.env import describe_observation_give_position, maze
 from LLM_RL.algorithms.ppo.reranker_policy import ReRankerPolicy, ReRankerSamplePolicy
 from LLM_RL.algorithms.ilql.gpt2.score_fn import build_ilql_score_fn
 import random
+import wandb
 
 def main(
     model_load_mode: ModelLoadMode, 
@@ -59,8 +60,8 @@ def main(
     
     lr: float=1e-4, 
     weight_decay: float=0.0, 
-    tau: float=0.95,
-    cql_weight: float=0.0,
+    tau: float=0.99,
+    cql_weight: float=0.5,
     gamma: float=0.99,
 
     train_bsize: int=32, 
@@ -510,8 +511,9 @@ def main(
                     print("incorrect!", observation, position, prediction, correct_answers[tuple(position)])
         accuracy = num_correct/(len(positions)-1)*100
         print("Accuracy: ", accuracy)
+        wandb.log({"accuracy": accuracy})
         with mesh: 
-            raw_results, summary_results = text_env_eval(
+            raw_results, summary_results, _ = text_env_eval(
                 env=env,
                 policy=sample_policy,
                 n_rollouts=16,
