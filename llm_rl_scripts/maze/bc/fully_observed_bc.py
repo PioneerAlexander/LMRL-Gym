@@ -86,7 +86,7 @@ def main(
     save_every_epochs: Optional[int]=None, 
     save_at_beginning: bool=False, 
     save_at_end: bool=False, 
-    save_best: bool=True, 
+    save_best: bool=False, 
     max_checkpoints: Optional[int]=None, 
     save_train_state: bool=True, 
     save_bf16: bool=True, 
@@ -189,8 +189,9 @@ def main(
         if grad_accum_steps is not None:
             return optax.MultiSteps(optim, every_k_schedule=grad_accum_steps)
         return optim
-
-    model_prng_key = jax.random.PRNGKey(seed)
+    key = jax.random.PRNGKey(seed)
+    model_prng_key, train_prng, policy_prng_key, eval_loss_prng_key = jax.random.split(key, num=4)
+    # model_prng_key = jax.random.PRNGKey(model_prng_key)
     train_state, model = load_train_state(
         model_load_mode=model_load_mode, 
         model_load_path=convert_path(model_load_path) if model_load_mode != ModelLoadMode.HF else model_load_path, 
@@ -242,7 +243,8 @@ def main(
         data_results = eval_loss(
             inference=inference, 
             dataset=eval_data, 
-            prng_key=jax.random.PRNGKey(1), 
+            # prng_key=jax.random.PRNGKey(eval_loss_prng_key), 
+            prng_key=eval_loss_prng_key,
             bsize=4, 
             eval_batches=64, 
         )
@@ -255,7 +257,8 @@ def main(
                 env=env, 
                 policy = GPT2PPOPolicy(
                     inference=inference, 
-                    prng_key=jax.random.PRNGKey(seed), 
+                    # prng_key=jax.random.PRNGKey(policy_prng_key), 
+                    prng_key = policy_prng_key,
                     generation_config=GenerationConfig(
                         do_sample=policy_do_sample, 
                         num_beams=policy_num_beams, 
@@ -287,7 +290,7 @@ def main(
         wandb.log({"score": np.mean(mean_rewards)})
         return data_results['loss'], {'data': data_results, 'sample_env': results}
     
-    train_prng = jax.random.PRNGKey(seed)
+    # train_prng = jax.random.PRNGKey(train_prng)
     save_dtype = jnp.bfloat16 if save_bf16 else jnp.float32
     trainer, inference = train_loop(
         trainer=trainer, 
