@@ -104,7 +104,7 @@ def main(
 ):
     input_args = locals()
     print(input_args)
-
+    model_load_path = f"{model_load_path}/{seed}/last"
     tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
     tokenizer.add_special_tokens({'pad_token': '<|pad|>'})
 
@@ -198,11 +198,12 @@ def main(
             ), 
             every_k_schedule=grad_accum_steps, 
         )
-    key, model_prng_key, q1_prng_key, q2_prng_key, v_prng_key, policy_prng, train_prng = jax.random.split(seed)
+    key = jax.random.PRNGKey(seed)
+    model_prng_key, q1_prng_key, q2_prng_key, v_prng_key, policy_prng, train_prng = jax.random.split(key, num=6)
     # model_prng_key = jax.random.PRNGKey(seed)
     base_train_state, base_model = load_train_state(
         model_load_mode=model_load_mode, 
-        model_load_path=convert_path(model_load_path) if model_load_mode != ModelLoadMode.HF else model_load_path, 
+        model_load_path=convert_path(model_load_path, "") if model_load_mode != ModelLoadMode.HF else model_load_path, 
         model_dtype=jnp.float32, 
         optim_getter=policy_optim_getter, 
         tokenizer=tokenizer, 
@@ -395,14 +396,9 @@ def main(
     ),
         loss_fn,
     )
+    save_dir = outputs_path + "/" + str(seed)
+    exp_name = str(seed)
 
-    save_dir, exp_name = setup_experiment_save(
-        exp_name=exp_name, 
-        outputs_path=convert_path(outputs_path), 
-        input_args=input_args, 
-        script__file__=__file__, 
-        is_main_process=is_main_process, 
-    )
     print(save_dir)
     if save_dir is None:
         embed()
@@ -480,7 +476,7 @@ def main(
                 ), 
                 out_str_process=lambda x: x.removesuffix('\n')+'\n', 
             )
-        
+
         maze_name = "double_t_maze"
         describe_function = "describe_observation_give_position"
         reward_function = "standard_reward"
