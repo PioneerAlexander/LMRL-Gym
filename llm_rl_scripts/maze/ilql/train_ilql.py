@@ -36,6 +36,7 @@ from LLM_RL.algorithms.ppo.reranker_policy import ReRankerPolicy, ReRankerSample
 from LLM_RL.algorithms.ilql.gpt2.score_fn import build_ilql_score_fn
 import random
 import wandb
+from torch import manual_seed
 
 def main(
     model_load_mode: ModelLoadMode, 
@@ -98,7 +99,8 @@ def main(
     force_pad_embeddings: bool=False, 
 
     should_restore_loop_state: bool=False, 
-    reranker: bool=True
+    reranker: bool=True,
+    seed: int=0,
 ):
     input_args = locals()
     print(input_args)
@@ -144,6 +146,9 @@ def main(
                 #     token_trajectory_chain = TokenTrajectoryChain.from_text_trajectory_chain(text_trajectory_chain, tokenizer)
                 #     yield ILQLData.from_token_trajectory_chain(token_trajectory_chain)
     ilql_data_lst = list(ilql_data_generator(train_data_path))
+    random.seed(seed)
+    np.random.seed(seed)
+    manual_seed(seed)
     random.shuffle(ilql_data_lst)
     
     dataset = ILQLDataset.from_ilql_data_list(ilql_data_lst, tokenizer, 
@@ -193,8 +198,8 @@ def main(
             ), 
             every_k_schedule=grad_accum_steps, 
         )
-
-    model_prng_key = jax.random.PRNGKey(3)
+    key, model_prng_key, q1_prng_key, q2_prng_key, v_prng_key, policy_prng, train_prng = jax.random.split(seed)
+    # model_prng_key = jax.random.PRNGKey(seed)
     base_train_state, base_model = load_train_state(
         model_load_mode=model_load_mode, 
         model_load_path=convert_path(model_load_path) if model_load_mode != ModelLoadMode.HF else model_load_path, 
@@ -227,7 +232,7 @@ def main(
         params=pi_beta_params, 
     )
 
-    q1_prng_key = jax.random.PRNGKey(4)
+    # q1_prng_key = jax.random.PRNGKey(seed)
     q1_head_train_state, q_head = load_head_train_state_from_config(
         model_config=MLPHeadConfig(
             input_dim=base_model.config.n_embd, 
@@ -254,7 +259,7 @@ def main(
         params=q1_target_head_params, 
     )
 
-    q2_prng_key = jax.random.PRNGKey(5)
+    # q2_prng_key = jax.random.PRNGKey(seed)
     q2_head_train_state, _ = load_head_train_state_from_config(
         model_config=MLPHeadConfig(
             input_dim=base_model.config.n_embd, 
@@ -281,7 +286,7 @@ def main(
         params=q2_target_head_params, 
     )
 
-    v_prng_key = jax.random.PRNGKey(6)
+    # v_prng_key = jax.random.PRNGKey(seed)
     v_head_train_state, v_head = load_head_train_state_from_config(
         model_config=MLPHeadConfig(
             input_dim=base_model.config.n_embd, 
@@ -371,7 +376,7 @@ def main(
         q_head_model=q_head, 
         v_head_model=v_head, 
         tokenizer=tokenizer,  
-        beta=8.0, 
+        beta=16.0, 
         dp_shard_logits=True, 
     ), 
         GPT2ValueRLInference.load_inference(
@@ -385,7 +390,7 @@ def main(
         q_head_model=q_head,
         v_head_model=None,
         tokenizer=tokenizer,
-        beta=8.0,
+        beta=16.0,
         dp_shard_logits=True,
     ),
         loss_fn,
@@ -402,7 +407,7 @@ def main(
     if save_dir is None:
         embed()
 
-    policy_prng = jax.random.PRNGKey(0)
+    # policy_prng = jax.random.PRNGKey(seed)
     def evaluate(inference: GPT2ILQLInference):
         nonlocal policy_prng
         policy_prng, new_key = jax.random.split(policy_prng)
@@ -513,13 +518,14 @@ def main(
         print("Accuracy: ", accuracy)
         wandb.log({"accuracy": accuracy})
         with mesh: 
-            raw_results, summary_results, _ = text_env_eval(
+            raw_results, summary_results, mean_reward = text_env_eval(
                 env=env,
                 policy=sample_policy,
                 n_rollouts=16,
                 bsize=16,
                 env_options={"init_position": start_position},
             )
+            wandb.log(mean_reward)
 
         for item in raw_results:
             print('='*25)
@@ -531,7 +537,7 @@ def main(
 
         return float('inf'), logs
     
-    train_prng = jax.random.PRNGKey(1)
+    # train_prng = jax.random.PRNGKey(seed)
     save_dtype = jnp.bfloat16 if save_bf16 else jnp.float32
     trainer, inference = train_loop(
         trainer=train, 
