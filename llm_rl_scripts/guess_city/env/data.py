@@ -5,6 +5,7 @@ import re
 from LLM_RL.environment import Text, TextHistory, TextTrajectory
 import nltk
 import math
+# from IPython import embed
 
 Conversation = Dict[str, Union[str, List[str]]]
 
@@ -48,7 +49,7 @@ INITIAL_STR = "Questions:\n"
 def get_default_word_list() -> List[WordVariants]:
     city_names = {}
     word_list = []
-    with open('global_cities.txt') as f:
+    with open('llm_rl_scripts/guess_city/env/global_cities.txt') as f:
         lines = f.readlines()
         for i in range(2, len(lines)):
             line = lines[i]
@@ -60,7 +61,7 @@ def get_default_word_list() -> List[WordVariants]:
             city = city.capitalize()[1:]
             word_list.append(city + "," + country)
 
-    retun word_list
+    return word_list
 
 def create_trajectory_from_history(
     word_var: WordVariants, 
@@ -129,6 +130,7 @@ def create_trajectory_from_conversation(conversation: Conversation, max_conversa
     reward: List[float] = [0.0]
     done: bool = True
 
+    # embed()
     for line in conversation["lines"]:
         question, answer = split_question_answer(line)
         # The agent is the asker
@@ -285,10 +287,6 @@ def asker_postproc(question: str) -> str:
     if len(question.split(" ")) > 40:
         return INVALID_QUESTION
     
-    # non-questions
-    if question.split(" ")[0] not in ["Is", "Does", "Can", "Do", "Are", "Could"]:
-        return INVALID_QUESTION
-    
     # non-questions again
     if question[-2] == "." and question.split(" ")[-1] != "etc.?":
         return INVALID_QUESTION
@@ -340,17 +338,18 @@ def is_done(word_var: WordVariants, question: str):
     question_pos = nltk.pos_tag(nltk.word_tokenize(question.lower()))
     
     # check for the actual word at the end of the question
-    for word_pos in word_var.pos_tags:
-        if len(word_pos) > len(question_pos):
-            continue
+    word_pos = word_var
+    # for word_pos in word_var.pos_tags:
+    #     if len(word_pos) > len(question_pos):
+    #         continue
         
-        all_same = True
-        for (var_i_word, _), (q_i_word, _) in zip(word_pos, question_pos[-len(word_pos):]):
-            if var_i_word != q_i_word:
-                all_same = False
-                break
-        if all_same:
-            return True
+    all_same = True
+    for (var_i_word), (q_i_word, _) in zip(word_pos, question_pos[-len(word_pos):]):
+        if var_i_word != q_i_word:
+            all_same = False
+            break
+    if all_same:
+        return True
     
     return False
 

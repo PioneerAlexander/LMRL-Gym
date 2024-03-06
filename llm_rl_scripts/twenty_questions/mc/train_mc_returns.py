@@ -1,5 +1,6 @@
 from typing import Optional
 import tyro
+import nltk
 from JaxSeq.bucket_manager import open_with_bucket as open
 from transformers import AutoTokenizer
 from JaxSeq.utils import jsonl_stream, convert_path, load_mesh, setup_experiment_save
@@ -27,15 +28,15 @@ from LLM_RL.algorithms.mc_returns.gpt2.interface import GPT2MCTrain, GPT2MCInfer
 from llm_rl_scripts.twenty_questions.env.env import TwentyQuestionsPolicyEnvironment
 from llm_rl_scripts.twenty_questions.env.oracle import T5Oracle
 from llm_rl_scripts.twenty_questions.env.oracle import T5ModelLoadMode as T5OracleModelLoadMode
-from llm_rl_scripts.twenty_questions.env.data import get_default_word_list, create_conversation_from_history 
-
+from llm_rl_scripts.twenty_questions.env.data import create_trajectories_from_conversations, get_default_word_list, create_conversation_from_history 
+import json
 
 def main(
     model_load_mode: ModelLoadMode, 
     model_load_path: str, 
     train_data_path: str, 
     eval_data_path: str, 
-    vocab_file: str, 
+    oracle_model_path: str,
 
     /,  # Mark the end of positional arguments.
 
@@ -52,24 +53,38 @@ def main(
     epochs: int=1, 
     max_steps: Optional[int]=None, 
     
-    lr: float=1e-5, 
-    weight_decay: float=0.0, 
+    weight_decay: float=0.001, 
+    init_lr: float=0.0001, 
+    end_lr: float=0.0001, 
+    lr: float=0.0001, 
+    lr_warmup_steps: int=1000, 
+    lr_decay_steps: int=1001, # no decay, so just needs to be > warmup steps
+    bf16_momentum: bool=False, 
+    multiply_by_parameter_scale: bool=True, 
+
+    resid_pdrop: float=0.05, 
+    attn_pdrop: float=0.05, 
+    embd_pdrop: float=0.05, 
+
+    train_bsize: int=4, 
+    grad_accum_steps: Optional[int]=32, 
 
     train_bsize: int=32, 
-    grad_accum_steps: int=1, 
+    grad_accum_steps: Optional[int]=32, 
 
-    bf16_activations: bool=False, 
     gradient_checkpointing: bool=False, 
     gradient_checkpointing_policy: str='nothing_saveable', 
 
-    max_length: int=512, 
+    bf16_activations: bool=False, 
+
+    max_length: int=1024, 
 
     log_every: int=256, 
-    eval_every_steps: Optional[int]=None, 
+    eval_every_steps: Optional[int]=256, 
     eval_every_epochs: Optional[int]=None, 
     eval_at_beginning: bool=False, 
     eval_at_end: bool=True, 
-
+    
     save_every_steps: Optional[int]=None, 
     save_every_epochs: Optional[int]=None, 
     save_at_beginning: bool=False, 
@@ -79,6 +94,11 @@ def main(
     save_train_state: bool=True, 
     save_bf16: bool=True, 
 
+    eval_loss_bsize: int=32, 
+    eval_loss_batches: Optional[int]=None, 
+
+    policy_n_rollouts: int=32, 
+    policy_bsize: int=1, 
     policy_max_input_length: int=256, 
     policy_max_output_length: int=256, 
     policy_do_sample: bool=True, 
@@ -86,47 +106,46 @@ def main(
     policy_temperature: Optional[float]=None, 
     policy_top_p: Optional[float]=None, 
     policy_top_k: Optional[int]=None, 
-
-    policy_bsize: int=32, 
+    policy_bsize: int=2, 
     policy_n_rollouts: int=32, 
 
     eval_loss_bsize: int=32, 
     eval_loss_batches: Optional[int]=None, 
-
     force_pad_embeddings: bool=False, 
 
     should_restore_loop_state: bool=False, 
-
-    beta: float=16.0, 
-    detach_q: bool=False, 
-    gamma: float=0.99, 
-    cql_weight: float=0.01, 
 ):
-    input_args = locals()
+    nltk.download('punkt')
+    nltk.download('averaged_perceptron_tagger')
+    input_args = dict(locals())
     print(input_args)
 
-    tokenizer = AutoTokenizer.from_pretrained('EleutherAI/gpt-j-6B')
+    tokenizer = AutoTokenizer.from_pretrained('gpt2')
     tokenizer.add_special_tokens({'pad_token': '<|pad|>'})
 
     mesh = load_mesh((data_mesh_shape, fsdp_mesh_shape, model_mesh_shape), ('dp', 'fsdp', 'mp'))
     is_main_process = jax.process_index() == 0
     print(f"Mesh: {mesh}")
     print(f"Is main process: {is_main_process}")
+    
+    # load data
+    with open(convert_path(train_data_path), 'r') as f:
+        raw_train = json.load(f)
+    with open(convert_path(eval_data_path), 'r') as f:
+        raw_eval = json.load(f)
 
-    def map_data_item(item):
-        text_trajectory_chain = TextTrajectoryChain(
-            text_trajectory=TextTrajectory(
-                text_history=[Text(text, bool(is_action)) for text, is_action in item['sequence']], 
-                reward=[0.0]+item['reward'], 
-                done=item['done'], 
-            ), 
-            next=None, 
-        )
-        token_trajectory_chain = TokenTrajectoryChain.from_text_trajectory_chain(text_trajectory_chain, tokenizer)
-        return MCData.from_token_trajectory_chain(token_trajectory_chain, gamma=gamma)
+    train_text_trajectories = create_trajectories_from_conversations(raw_train)
+    eval_text_trajectories = create_trajectories_from_conversations(raw_eval)
+
+    def mc_data_generator(trajectories):
+        for trajectory in trajectories:
+            trajectory_chain = TextTrajectoryChain(text_trajectory=trajectory, 
+                                                   next=None,)
+            token_trajectory = TokenTrajectoryChain.from_text_trajectory_chain(trajectory_chain, tokenizer)
+            yield MCData.from_token_trajectory_chain(token_trajectory, gamma=gamma)
 
     train_dataset = MCIterableDataset.from_mc_data_iterable(
-        MapIterable(map_data_item, FileOpenIterable(convert_path(train_data_path), 'r', pipe=jsonl_stream)), 
+        mc_data_generator(train_text_trajectories),
         tokenizer, 
         BlockingStrategy(
             padding=Padding.RIGHT, 
@@ -136,7 +155,7 @@ def main(
     )
 
     eval_dataset = MCIterableDataset.from_mc_data_iterable(
-        MapIterable(map_data_item, FileOpenIterable(convert_path(eval_data_path), 'r', pipe=jsonl_stream)), 
+        mc_data_generator(eval_text_trajectories),
         tokenizer, 
         BlockingStrategy(
             padding=Padding.RIGHT, 
@@ -249,7 +268,6 @@ def main(
     
     model_prng_key = jax.random.PRNGKey(2)
     policy_prng, oracle_prng = jax.random.split(model_prng_key)
-    oracle_model_path = "gs://rail-tpus-charles-3/JaxSeq/outputs/twenty_questions/flan-t5-xl_convos_0_1000_noprompt_lr1e-3_test1"
 
     env = TwentyQuestionsPolicyEnvironment(
         oracle=T5Oracle.load_oracle(

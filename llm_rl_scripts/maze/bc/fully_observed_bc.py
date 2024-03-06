@@ -257,8 +257,10 @@ def main(
                 env=env, 
                 policy = GPT2PPOPolicy(
                     inference=inference, 
+
                     # prng_key=jax.random.PRNGKey(policy_prng_key), 
                     prng_key = policy_prng_key,
+
                     generation_config=GenerationConfig(
                         do_sample=policy_do_sample, 
                         num_beams=policy_num_beams, 
@@ -289,8 +291,7 @@ def main(
         #TODO: accuracy metric
         wandb.log({"score": np.mean(mean_rewards)})
         return data_results['loss'], {'data': data_results, 'sample_env': results}
-    
-    # train_prng = jax.random.PRNGKey(train_prng)
+
     save_dtype = jnp.bfloat16 if save_bf16 else jnp.float32
     trainer, inference = train_loop(
         trainer=trainer, 
