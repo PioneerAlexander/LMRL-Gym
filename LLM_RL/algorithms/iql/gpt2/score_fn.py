@@ -1,6 +1,6 @@
 from typing import List, Optional
 from JaxSeq.models.gpt2.interface import GPT2Inference
-from LLM_RL.algorithms.ilql.base_interface import ILQLInference
+from LLM_RL.algorithms.iql.base_interface import ILQLInference
 from transformers.tokenization_utils import PreTrainedTokenizer
 import jax.numpy as jnp
 import numpy as np

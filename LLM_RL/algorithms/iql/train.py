@@ -17,7 +17,8 @@ from JaxSeq.shard_model import get_sharding_from_model
 from flax.training.train_state import TrainState
 from transformers.modeling_flax_utils import FlaxPreTrainedModel
 import pickle as pkl
-from LLM_RL.algorithms.ilql.base_interface import ILQLTrain, ILQLInference
+from LLM_RL.algorithms.iql.base_interface import ILQLTrain, ILQLInference
+from LLM_RL.algorithms.iql.gpt2.interface import GPT2ILQLInference
 from LLM_RL.algorithms.value_rl_base.base_interface import ValueRLInference
 import jax.numpy as jnp
 import flax.linen as nn
@@ -303,7 +304,7 @@ def train_loop(
                 q2_head_params=trainer.q2_head_train_state.params, 
                 v_head_params=trainer.v_head_train_state.params, 
             )
-        elif isinstance(inference, ILQLInference):
+        elif isinstance(inference,  GPT2ILQLInference):
             new_value_inference = inference.value_inference.replace(
                 base_params=trainer.base_train_state.params, 
                 q1_head_params=trainer.q1_head_train_state.params, 

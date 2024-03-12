@@ -248,8 +248,9 @@ class GPT2ILQLTrain(ILQLTrain):
                 q1_logits = q1_head_output[:, :-1, :].astype(jnp.float32)
                 q2_logits = q2_head_output[:, :-1, :].astype(jnp.float32)
 
+                # get policy logits
+                base_logits = base_model_output.logits.astype(jnp.float32)
                 # get next token values
-
                 if next_token_ids is not None:
                     # just run vf on last token to save some flops
                     last_next_token_idxs = (next_tokens_attention_mask.shape[1]-1)-jnp.argmax(jnp.flip(next_tokens_attention_mask, axis=1).astype(jnp.int32), axis=1)
@@ -272,6 +273,8 @@ class GPT2ILQLTrain(ILQLTrain):
                     v_final = v_final * (1 - dones)
                 v_final = jax.lax.stop_gradient(v_final)
 
+
+
                 loss, info = loss_fn(
                     q1, 
                     q2, 
@@ -280,7 +283,8 @@ class GPT2ILQLTrain(ILQLTrain):
                     target_q1, 
                     target_q2, 
                     q1_logits, 
-                    q2_logits, 
+                    q2_logits,
+                    base_logits, 
                     input_ids[:, 1:], 
                     attention_mask[:, 1:], 
                     should_take_action, 

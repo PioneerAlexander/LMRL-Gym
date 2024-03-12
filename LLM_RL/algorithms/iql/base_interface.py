@@ -35,6 +35,7 @@ def ilql_loss(
     target_q2: jax.Array, # [batch, time-1] output is masked; shift x[:-1]
     q1_logits: jax.Array, # [batch, time-1, vocab] output is masked; shift x[:-1]
     q2_logits: jax.Array, # [batch, time-1, vocab] output is masked; shift x[:-1]
+    base_logits: jax.Array,
     token_ids: jax.Array, # [batch, time-1] output is masked; shift x[1:]
     attention_mask: jax.Array, # [batch, time-1] output is masked; shift x[1:]
     should_take_action: jax.Array, # [batch, time-1] output is masked; shift x[1:]
@@ -43,6 +44,7 @@ def ilql_loss(
     gamma: Union[float, jax.Array], 
     tau: Union[float, jax.Array], 
     cql_weight: Union[float, jax.Array], 
+    policy_weight: Union[float, jax.Array],
 ) -> Tuple[jnp.ndarray, Any]:
     # should be an action in the batch
     mask = should_take_action.astype(jnp.float32) * attention_mask
@@ -87,6 +89,13 @@ def ilql_loss(
     expectile_weights = expectile_indicator * tau + (1 - expectile_indicator) * (1 - tau)
     v_loss = (optax.l2_loss(v_selected, jax.lax.stop_gradient(target_q_selected)) * jax.lax.stop_gradient(expectile_weights) * sa_mask).sum() / n
 
+    advantage = jax.lax.stop_gradient(target_q_selected) - v_selected
+
+    # policy advantage-weighted loss
+    base_logprobs = -optax.softmax_cross_entropy_with_integer_labels(base_logits[:, :-1], token_ids)
+
+    policy_loss = -(jnp.exp(advantage) * base_logprobs.reshape((-1,))).mean() 
+    
     # compute cql loss on both q heads
     q1_cql_loss = optax.softmax_cross_entropy_with_integer_labels(q1_logits, token_ids)
     q1_cql_loss = (mask * q1_cql_loss).sum() / n
@@ -94,7 +103,7 @@ def ilql_loss(
     q2_cql_loss = optax.softmax_cross_entropy_with_integer_labels(q2_logits, token_ids)
     q2_cql_loss = (mask * q2_cql_loss).sum() / n
     
-    loss = q1_loss + q2_loss + v_loss + cql_weight * (q1_cql_loss + q2_cql_loss)
+    loss = q1_loss + q2_loss + v_loss + cql_weight * (q1_cql_loss + q2_cql_loss) + policy_weight * policy_loss
 
     logs = dict(
         losses=dict(

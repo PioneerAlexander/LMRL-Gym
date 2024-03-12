@@ -9,23 +9,23 @@ import os
 import optax
 from JaxSeq.models.gpt2.load import load_train_state, ModelLoadMode
 import pickle as pkl
-from LLM_RL.algorithms.ilql.base_interface import ilql_loss
+from LLM_RL.algorithms.iql.base_interface import ilql_loss
 from transformers.generation import GenerationConfig
 from jaxtyping import PyTree
 import re
 from LLM_RL.environment import Text, text_env_eval, TextTrajectory, TextTrajectoryChain, TokenTrajectoryChain, text_history_to_str
-from LLM_RL.algorithms.ilql.gpt2.interface import GPT2ILQLTrain, GPT2ILQLInference
+from LLM_RL.algorithms.iql.gpt2.interface import GPT2ILQLTrain, GPT2ILQLInference
 from LLM_RL.algorithms.value_rl_base.gpt2.interface import GPT2ValuePolicy, GPT2ValueRLInference
 from LLM_RL.heads.mlp_head import load_train_state_from_config as load_head_train_state_from_config
 from LLM_RL.heads.mlp_head import MLPHeadConfig
 from JaxSeq.shard_model import shard_params_from_params
-from LLM_RL.algorithms.ilql.data import ILQLDataset
+from LLM_RL.algorithms.iql.data import ILQLDataset
 from functools import partial
 import numpy as np
 from JaxSeq.logs import log, pull_logs
 import json
-from LLM_RL.algorithms.ilql.train import train_loop
-from LLM_RL.algorithms.ilql.data import ILQLData, ILQLDataset
+from LLM_RL.algorithms.iql.train import train_loop
+from LLM_RL.algorithms.iql.data import ILQLData, ILQLDataset
 from JaxSeq.utils import multihost_device_get
 from transformers import GPT2TokenizerFast
 from IPython import embed
@@ -33,7 +33,7 @@ from llm_rl_scripts.maze.env.maze_utils import setup_maze_env, pick_start_positi
 from llm_rl_scripts.maze.env.mazes import double_t_maze_optimal_directions, double_t_maze
 from llm_rl_scripts.maze.env.env import describe_observation_give_position, maze_proposal_function
 from LLM_RL.algorithms.ppo.reranker_policy import ReRankerPolicy, ReRankerSamplePolicy
-from LLM_RL.algorithms.ilql.gpt2.score_fn import build_ilql_score_fn
+from LLM_RL.algorithms.iql.gpt2.score_fn import build_ilql_score_fn
 import random
 import wandb
 from torch import manual_seed
@@ -64,6 +64,7 @@ def main(
     tau: float=0.99,
     cql_weight: float=0.5,
     gamma: float=0.99,
+    policy_weight: float=1.0,
 
     train_bsize: int=32, 
     grad_accum_steps: int=1, 
@@ -104,7 +105,7 @@ def main(
 ):
     input_args = locals()
     print(input_args)
-    model_load_path = f"{model_load_path}/{seed}/last"
+    # model_load_path = f"{model_load_path}/{seed}/last"
     tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
     tokenizer.add_special_tokens({'pad_token': '<|pad|>'})
 
@@ -299,7 +300,7 @@ def main(
         with open(os.path.join(convert_path(model_load_path), 'loop_state.pkl'), 'rb') as f:
             loop_state = pkl.load(f)
     
-    loss_fn = partial(ilql_loss, gamma=gamma, tau=tau, cql_weight=cql_weight)
+    loss_fn = partial(ilql_loss, gamma=gamma, tau=tau, cql_weight=cql_weight, policy_weight=policy_weight)
 
     train = GPT2ILQLTrain.load_train(
         base_train_state=base_train_state, 
