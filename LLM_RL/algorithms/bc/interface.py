@@ -3,24 +3,21 @@ from collections import namedtuple
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import jax
-from jax_utils.shard_utils import set_partitions, _id_fn
-from flax.core.frozen_dict import freeze
 import jax.numpy as jnp
 from flax.core.frozen_dict import freeze, unfreeze
 from jax.experimental.maps import Mesh
 import numpy as np
-from jax_utils.multihost_shard_utils import host_param_shard
 from jax.random import KeyArray
 from optax import softmax_cross_entropy_with_integer_labels
 from flax.core.frozen_dict import FrozenDict
 import optax
 from jaxtyping import PyTree
 from transformers.modeling_flax_utils import FlaxPreTrainedModel
-from environment import TextHistory
+from environment import TextHistory, TokenHistory
 from algorithms.jax_agent import Inference, StepOutput, Trainer
-from jax_utils.data import block_sequences
-from algorithms.jax_bc.data import block_token_histories
-from token_history import text_history_to_token_history
+from JaxSeq.utils import block_sequences
+from LLM_RL.algorithms.bc.data import block_token_histories
+# from token_history import text_history_to_token_history
 from transformers.tokenization_utils import PreTrainedTokenizer
 from jax.experimental.pjit import pjit, with_sharding_constraint
 from flax import struct
@@ -50,7 +47,7 @@ def bc_loss(
 class BCTrainer(Trainer):    
     def train_step_from_text_history(self, text_histories: List[TextHistory], max_len: Optional[int], rng_key: KeyArray) -> Tuple[jnp.ndarray, Dict[str, Any], BCTrainer]:
 
-        token_histories = [text_history_to_token_history(text_history, self.tokenizer) for text_history in text_histories]
+        token_histories = [TokenHistory.from_text_history(text_history, self.tokenizer) for text_history in text_histories]
 
         tokens, is_action = block_token_histories(token_histories, max_len, self.tokenizer.pad_token_id)
         
@@ -62,7 +59,7 @@ class BCTrainer(Trainer):
 
         return loss, info, new_trainer
 
-class BCInference(Inference):
+class BCInference(struct.PyTreeNode):
     logit_fn: Callable[[PyTree, jnp.ndarray], jnp.ndarray] = struct.field(pytree_node=False)
     loss_fn: Callable[[PyTree, PyTree], jnp.ndarray] = struct.field(pytree_node=False)
     

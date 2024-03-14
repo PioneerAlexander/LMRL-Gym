@@ -11,7 +11,7 @@ from jax_models.gpt2 import load_gpt2_model
 import numpy as np
 from jax.experimental.maps import Mesh
 import optax
-import dcargs
+import tyro
 from functools import partial
 from text_env_eval import text_env_eval
 from token_history import PrefixTokenTrajectory, text_transition_to_token_transition
@@ -25,6 +25,7 @@ from environments.car_dealer.data import create_trajectories_from_conversations,
 import tree
 import json
 from algorithms.jax_ilql.basic_train_loop import eval_loop, train_loop
+from utils.gcs_manager import open_pp as open
 
 
 def main(
@@ -97,7 +98,7 @@ def main(
     input_args = locals().copy()
     print(input_args)
 
-    from utils.gcs_manager import open_pp as open
+    
     open = partial(open, gcloud_project=gcloud_project, gcloud_token=gcloud_token)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -385,4 +386,4 @@ def main(
         )
 
 if __name__ == "__main__":
-    dcargs.cli(main)
+    tyro.cli(main)
