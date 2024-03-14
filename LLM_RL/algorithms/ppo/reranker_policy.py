@@ -17,8 +17,8 @@ class ReRankerSamplePolicy(TextPolicy):
         scores = np.exp(scores) / np.exp(scores).sum()
         selected = np.random.choice(len(scores), p=scores)
         # # zip proposals and scores together
-        proposals_and_scores = list(zip(proposals, scores))
-        jax.debug.print("{x}", x=proposals_and_scores)
+        # proposals_and_scores = list(zip(proposals, scores))
+        # jax.debug.print("{x}", x=proposals_and_scores)
         return proposals[selected]
     
 class ReRankerPolicy(TextPolicy):
