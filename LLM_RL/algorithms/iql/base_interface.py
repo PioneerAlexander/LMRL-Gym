@@ -89,7 +89,7 @@ def ilql_loss(
     expectile_weights = expectile_indicator * tau + (1 - expectile_indicator) * (1 - tau)
     v_loss = (optax.l2_loss(v_selected, jax.lax.stop_gradient(target_q_selected)) * jax.lax.stop_gradient(expectile_weights) * sa_mask).sum() / n
 
-    advantage = jax.lax.stop_gradient(target_q_selected) - v_selected
+    advantage = jax.lax.stop_gradient(target_q_selected - v_selected)
 
     # policy advantage-weighted loss
     base_logprobs = -optax.softmax_cross_entropy_with_integer_labels(base_logits[:, :-1], token_ids)
