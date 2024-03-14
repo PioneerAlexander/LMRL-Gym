@@ -7,6 +7,7 @@ import numpy as np
 from LLM_RL.environment import TextHistory, TokenHistory
 import jax
 from IPython import embed
+from types import FunctionType
 
 @jax.jit
 def nansum(x):
@@ -46,20 +47,24 @@ def build_ilql_score_fn(
             prefix_len = jnp.asarray([prev_token_histories[i+x].tokens.shape[0] for x in range(batch.shape[0])], dtype=jnp.int32)
             attention_mask = (batch != tokenizer.pad_token_id).astype(np.float32)
             # embed()
-            try:
-                qs = jnp.minimum(values.target_output.q1, values.target_output.q2)
-            except AttributeError:
-                qs = jnp.minimum(values.q1, values.q2)
-            qsa = jnp.take_along_axis(qs[:, :-1], batch[:, 1:][..., None], axis=2).squeeze(2)
+            # try:
+            #     qs = jnp.minimum(values.target_output.q1, values.target_output.q2)
+            # except AttributeError:
+            #     qs = jnp.minimum(values.q1, values.q2)
+            # qsa = jnp.take_along_axis(qs[:, :-1], batch[:, 1:][..., None], axis=2).squeeze(2)
+            logits = jnp.take_along_axis(values.output.base_raw_output.logits[:, :-1], batch[:, 1:][..., None], axis=2).squeeze(2)
+            
             action_advs = jnp.empty(prefix_len.shape, dtype=jnp.float32)
+            # for x in range(len(prefix_len)):
+            #     # embed()
+            #     # check if this is getting rid of non-action states
+            #     try:
+            #         action_advs = action_advs.at[x].set(value_weight * nansum(((qsa[x] - values.output.v[x, :-1]) * attention_mask[x, 1:])[(prefix_len[x]-1):]))
+            #     except AttributeError:
+            #         action_advs = action_advs.at[x].set(value_weight * nansum(((qsa[x] - values.v[x, :-1]) * attention_mask[x, 1:])[(prefix_len[x]-1):]))
             for x in range(len(prefix_len)):
-                # embed()
-                # check if this is getting rid of non-action states
-                try:
-                    action_advs = action_advs.at[x].set(value_weight * nansum(((qsa[x] - values.output.v[x, :-1]) * attention_mask[x, 1:])[(prefix_len[x]-1):]))
-                except AttributeError:
-                    action_advs = action_advs.at[x].set(value_weight * nansum(((qsa[x] - values.v[x, :-1]) * attention_mask[x, 1:])[(prefix_len[x]-1):]))
-
+              action_advs = action_advs.at[x].set(nansum((logits[x, :] * attention_mask[x, 1:])[(prefix_len[x]-1):]))
+            
             if logit_weight is not None:
                 logprobs = jax.nn.log_softmax(pi_beta_inference.get_logits_from_tokens(batch), axis=-1)
                 action_logits = jnp.take_along_axis(logprobs[:, :-1], batch[:, 1:][..., None], axis=2).squeeze(2)
@@ -71,3 +76,4 @@ def build_ilql_score_fn(
         return advantages
 
     return score_fn
+0
