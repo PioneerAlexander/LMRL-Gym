@@ -8,6 +8,11 @@ from LLM_RL.environment import TextHistory, TokenHistory
 import jax
 from IPython import embed
 
+@jax.jit
+def nansum(x):
+    mask = ~jnp.isnan(x)
+    return jnp.where(mask, x, 0).sum()
+
 def build_ilql_score_fn(
     inference: ILQLInference, 
     pi_beta_inference: Optional[GPT2Inference], 
@@ -51,15 +56,15 @@ def build_ilql_score_fn(
                 # embed()
                 # check if this is getting rid of non-action states
                 try:
-                    action_advs = action_advs.at[x].set(value_weight * ((qsa[x] - values.output.v[x, :-1]) * attention_mask[x, 1:])[(prefix_len[x]-1):].sum(axis=0))
+                    action_advs = action_advs.at[x].set(value_weight * nansum(((qsa[x] - values.output.v[x, :-1]) * attention_mask[x, 1:])[(prefix_len[x]-1):]))
                 except AttributeError:
-                    action_advs = action_advs.at[x].set(value_weight * ((qsa[x] - values.v[x, :-1]) * attention_mask[x, 1:])[(prefix_len[x]-1):].sum(axis=0))
+                    action_advs = action_advs.at[x].set(value_weight * nansum(((qsa[x] - values.v[x, :-1]) * attention_mask[x, 1:])[(prefix_len[x]-1):]))
 
             if logit_weight is not None:
                 logprobs = jax.nn.log_softmax(pi_beta_inference.get_logits_from_tokens(batch), axis=-1)
                 action_logits = jnp.take_along_axis(logprobs[:, :-1], batch[:, 1:][..., None], axis=2).squeeze(2)
                 for x in range(len(prefix_len)):
-                    action_advs = action_advs.at[x].add(logit_weight * (action_logits[x] * attention_mask[x, 1:])[(prefix_len[x]-1):].sum(axis=0))
+                    action_advs = action_advs.at[x].add(logit_weight * nansum((action_logits[x] * attention_mask[x, 1:])[(prefix_len[x]-1):]))
 
             advantages.extend(jax.device_get(action_advs).tolist())
         
