@@ -9,23 +9,22 @@ import os
 import optax
 from JaxSeq.models.gpt2.load import load_train_state, ModelLoadMode
 import pickle as pkl
-from LLM_RL.algorithms.iql.base_interface import ilql_loss
+from LLM_RL.algorithms.iql.base_interface import iql_loss
 from transformers.generation import GenerationConfig
 from jaxtyping import PyTree
 import re
 from LLM_RL.environment import Text, text_env_eval, TextTrajectory, TextTrajectoryChain, TokenTrajectoryChain, text_history_to_str
-from LLM_RL.algorithms.iql.gpt2.interface import GPT2ILQLTrain, GPT2ILQLInference
+from LLM_RL.algorithms.iql.gpt2.interface import GPT2IQLTrain, GPT2IQLInference
 from LLM_RL.algorithms.value_rl_base.gpt2.interface import GPT2ValuePolicy, GPT2ValueRLInference
 from LLM_RL.heads.mlp_head import load_train_state_from_config as load_head_train_state_from_config
 from LLM_RL.heads.mlp_head import MLPHeadConfig
 from JaxSeq.shard_model import shard_params_from_params
-from LLM_RL.algorithms.iql.data import ILQLDataset
 from functools import partial
 import numpy as np
 from JaxSeq.logs import log, pull_logs
 import json
 from LLM_RL.algorithms.iql.train import train_loop
-from LLM_RL.algorithms.iql.data import ILQLData, ILQLDataset
+from LLM_RL.algorithms.iql.data import IQLData, IQLDataset
 from JaxSeq.utils import multihost_device_get
 from transformers import GPT2TokenizerFast
 from IPython import embed
@@ -33,7 +32,7 @@ from llm_rl_scripts.maze.env.maze_utils import setup_maze_env, pick_start_positi
 from llm_rl_scripts.maze.env.mazes import double_t_maze_optimal_directions, double_t_maze
 from llm_rl_scripts.maze.env.env import describe_observation_give_position, maze_proposal_function
 from LLM_RL.algorithms.ppo.reranker_policy import ReRankerPolicy, ReRankerSamplePolicy
-from LLM_RL.algorithms.iql.gpt2.score_fn import build_ilql_score_fn
+from LLM_RL.algorithms.iql.gpt2.score_fn import build_iql_score_fn
 import random
 import wandb
 from torch import manual_seed
@@ -53,7 +52,7 @@ def main(
     model_mesh_shape: int=-1, 
 
     use_wandb: bool=True, 
-    wandb_project: Optional[str]="llm_rl_repo_give_position_ilql", 
+    wandb_project: Optional[str]="iql_maze", 
 
     n_rounds: int=1, 
     epochs: int=1, 
@@ -64,7 +63,7 @@ def main(
     tau: float=0.99,
     cql_weight: float=0.5,
     gamma: float=0.99,
-    policy_weight: float=1.0,
+    policy_weight: float=16.0,
 
     train_bsize: int=32, 
     grad_accum_steps: int=1, 
@@ -75,7 +74,7 @@ def main(
     max_length: int=80, 
 
     log_every: int=256, 
-    eval_every_steps: Optional[int]=None, 
+    eval_every_steps: Optional[int]=400, 
     eval_every_epochs: Optional[int]=10, 
     eval_at_beginning: bool=True, 
     eval_at_end: bool=True, 
@@ -114,7 +113,7 @@ def main(
     print(f"Mesh: {mesh}")
     print(f"Is main process: {is_main_process}")
     
-    def ilql_data_generator(data_name):
+    def iql_data_generator(data_name):
         with open(data_name, "r") as f:
             for item in f:
                 obj = json.loads(item)
@@ -130,16 +129,16 @@ def main(
                     curr_chain = TextTrajectoryChain(text_trajectory=prev_trajectory, next=curr_chain)
                 token_trajectory_chain = TokenTrajectoryChain.from_text_trajectory_chain(curr_chain, tokenizer)
                 while token_trajectory_chain.next is not None:
-                    yield ILQLData.from_token_trajectory_chain(token_trajectory_chain)
+                    yield IQLData.from_token_trajectory_chain(token_trajectory_chain)
                     token_trajectory_chain = token_trajectory_chain.next
 
-    ilql_data_lst = list(ilql_data_generator(train_data_path))
+    iql_data_lst = list(iql_data_generator(train_data_path))
     random.seed(seed)
     np.random.seed(seed)
     manual_seed(seed)
-    random.shuffle(ilql_data_lst)
+    random.shuffle(iql_data_lst)
     
-    dataset = ILQLDataset.from_ilql_data_list(ilql_data_lst, tokenizer, 
+    dataset = IQLDataset.from_iql_data_list(iql_data_lst, tokenizer, 
                                               BlockingStrategy(
                                                 padding=Padding.RIGHT,
                                                 truncation=Truncation.RIGHT,
@@ -216,10 +215,6 @@ def main(
             lambda x: multihost_device_get(x, mesh=mesh).copy(), 
             base_train_state.params, 
         )
-    pi_beta_params = shard_params_from_params(
-        model=base_model, 
-        params=pi_beta_params, 
-    )
 
     # q1_prng_key = jax.random.PRNGKey(seed)
     q1_head_train_state, q_head = load_head_train_state_from_config(
@@ -300,9 +295,9 @@ def main(
         with open(os.path.join(convert_path(model_load_path), 'loop_state.pkl'), 'rb') as f:
             loop_state = pkl.load(f)
     
-    loss_fn = partial(ilql_loss, gamma=gamma, tau=tau, cql_weight=cql_weight, policy_weight=policy_weight)
+    loss_fn = partial(iql_loss, gamma=gamma, tau=tau, cql_weight=cql_weight, policy_weight=policy_weight)
 
-    train = GPT2ILQLTrain.load_train(
+    train = GPT2IQLTrain.load_train(
         base_train_state=base_train_state, 
         target_base_params=target_base_params, 
         q1_head_train_state=q1_head_train_state, 
@@ -353,7 +348,7 @@ def main(
     # )
     
     # inference = GPT2ILQLInference.load_inference(value_rl_inference, target_value_rl_inference, loss_fn)
-    inference = GPT2ILQLInference.load_inference(
+    inference = GPT2IQLInference.load_inference(
         GPT2ValueRLInference.load_inference(
         pi_beta_params=None,
         base_params=base_train_state.params, 
@@ -365,7 +360,7 @@ def main(
         q_head_model=q_head, 
         v_head_model=v_head, 
         tokenizer=tokenizer,  
-        beta=16.0, 
+        beta=policy_weight, 
         dp_shard_logits=True, 
     ), 
         GPT2ValueRLInference.load_inference(
@@ -379,7 +374,7 @@ def main(
         q_head_model=q_head,
         v_head_model=None,
         tokenizer=tokenizer,
-        beta=16.0,
+        beta=policy_weight,
         dp_shard_logits=True,
     ),
         loss_fn,
@@ -392,14 +387,14 @@ def main(
         embed()
 
     # policy_prng = jax.random.PRNGKey(seed)
-    def evaluate(inference: GPT2ILQLInference):
+    def evaluate(inference: GPT2IQLInference):
         nonlocal policy_prng
         policy_prng, new_key = jax.random.split(policy_prng)
         # embed()
         if reranker: 
             sample_policy = ReRankerSamplePolicy(
                 proposal_fn=maze_proposal_function,
-                score_fn=build_ilql_score_fn(
+                score_fn=build_iql_score_fn(
                     inference=inference,
                     pi_beta_inference=None,
                     tokenizer=tokenizer,
@@ -412,7 +407,7 @@ def main(
             
             policy = ReRankerPolicy(
                 proposal_fn=maze_proposal_function,
-                score_fn=build_ilql_score_fn(
+                score_fn=build_iql_score_fn(
                     inference=inference,
                     pi_beta_inference=None,
                     tokenizer=tokenizer,

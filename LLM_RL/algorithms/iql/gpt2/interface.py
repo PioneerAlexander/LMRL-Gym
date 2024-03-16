@@ -1,6 +1,6 @@
 from typing import Optional, Callable, Tuple
 from jax.experimental.pjit import pjit
-from LLM_RL.algorithms.ilql.base_interface import ILQLTrain, ILQLInference
+from LLM_RL.algorithms.iql.base_interface import IQLTrain, IQLInference
 from flax.training.train_state import TrainState
 from jaxtyping import PyTree
 from transformers.modeling_flax_utils import FlaxPreTrainedModel
@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import optax
 from LLM_RL.algorithms.value_rl_base.gpt2.interface import GPT2ValueRLInference
 
-class GPT2ILQLTrain(ILQLTrain):
+class GPT2IQLTrain(IQLTrain):
     @classmethod
     def load_train(
         cls, 
@@ -385,7 +385,7 @@ class GPT2ILQLTrain(ILQLTrain):
             _step=_step, 
         )
 
-class GPT2ILQLInference(ILQLInference):
+class GPT2IQLInference(IQLInference):
     @classmethod
     def load_inference(
         cls, 

@@ -26,7 +26,7 @@ def get_query_indicators(
     query_indicators = jax.nn.one_hot(idxs, num_classes=flat_mask.shape[0]+1, dtype=jnp.float32)[:, :-1]
     return query_indicators
 
-def ilql_loss(
+def iql_loss(
     q1: jax.Array, # [batch, time-1] output is masked; shift x[:-1]
     q2: jax.Array, # [batch, time-1] output is masked; shift x[:-1]
     v: jax.Array, # [batch, time-1] output is masked; shift x[:-1]
@@ -127,7 +127,7 @@ def ilql_loss(
 
     return loss, logs
 
-class ILQLTrain(struct.PyTreeNode):
+class IQLTrain(struct.PyTreeNode):
     base_train_state: TrainState
     target_base_params: Optional[PyTree]
     q1_head_train_state: TrainState
@@ -181,7 +181,7 @@ class ILQLTrain(struct.PyTreeNode):
         next_tokens_attention_mask: Optional[jax.Array]=None, 
         next_tokens_position_ids: Optional[jax.Array]=None, 
         train: bool=True, 
-    ) -> Tuple[ILQLTrain, jax.Array, PyTree]:
+    ) -> Tuple[IQLTrain, jax.Array, PyTree]:
         
         # handle attention mask and position ids shifting
         attention_mask, position_ids = initialize_attn_mask_pos_ids(
@@ -241,11 +241,11 @@ class ILQLTrain(struct.PyTreeNode):
             q2_target_head_params=q2_target_head_params, 
         ), loss, logs
 
-class ILQLForwardOutput(NamedTuple):
+class IQLForwardOutput(NamedTuple):
     output: ValueRLForwardOutput
     target_output: ValueRLForwardOutput
 
-class ILQLInference(struct.PyTreeNode):
+class IQLInference(struct.PyTreeNode):
     value_inference: ValueRLInference
     target_value_inference: ValueRLInference
     _eval_loss: Callable = struct.field(pytree_node=False)
@@ -327,13 +327,13 @@ class ILQLInference(struct.PyTreeNode):
         output_attentions: Optional[bool]=None, 
         train: bool=False, 
         prng_key: Optional[jax.random.PRNGKeyArray]=None, 
-    ) -> ILQLForwardOutput:
+    ) -> IQLForwardOutput:
         input_ids_cp = input_ids.copy()
         attention_mask_cp = attention_mask.copy() if attention_mask is not None else None
         position_ids_cp = position_ids.copy() if position_ids is not None else None
         output_attentions_cp = output_attentions.copy() if output_attentions is not None else None
         prng_key_cp = prng_key.copy() if prng_key is not None else None
-        return ILQLForwardOutput(
+        return IQLForwardOutput(
             output=self.value_inference.forward(
                 input_ids, 
                 attention_mask=attention_mask, 
@@ -361,8 +361,8 @@ class ILQLInference(struct.PyTreeNode):
         train: bool=False, 
         prng_key: Optional[jax.random.PRNGKeyArray]=None, 
         input_token_process: Optional[Callable[[List[int]], List[int]]]=None, 
-    ) -> ILQLForwardOutput:
-        return ILQLForwardOutput(
+    ) -> IQLForwardOutput:
+        return IQLForwardOutput(
             output=self.value_inference.forward_from_str(
                 input_strs, 
                 blocking_strategy=blocking_strategy, 

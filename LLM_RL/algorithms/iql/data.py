@@ -7,7 +7,7 @@ import jax
 from transformers.tokenization_utils import PreTrainedTokenizerBase
 from LLM_RL.environment import TokenTrajectoryChain
 
-class ILQLData(NamedTuple):
+class IQLData(NamedTuple):
     input_ids: np.ndarray # [t]
     should_take_action: np.ndarray # [t-1]
     rewards: np.ndarray # [t-1]
@@ -17,7 +17,7 @@ class ILQLData(NamedTuple):
 
     @staticmethod
     def block(
-        data: List[ILQLData], 
+        data: List[IQLData], 
         blocking_strategy: BlockingStrategy, 
         tokenizer: PreTrainedTokenizerBase, 
     ) -> Dict[str, np.ndarray]:
@@ -78,7 +78,7 @@ class ILQLData(NamedTuple):
             next_done=next_done, 
         )
 
-class ILQLDataset(Dataset):
+class IQLDataset(Dataset):
     def __init__(
         self, 
         input_ids: np.ndarray, # [b, t]
@@ -120,23 +120,23 @@ class ILQLDataset(Dataset):
         return self.input_ids.shape[0]
     
     @classmethod
-    def from_ilql_data_list(
+    def from_iql_data_list(
         cls, 
-        ilql_data_list: List[ILQLData], 
+        iql_data_list: List[IQLData], 
         tokenizer: PreTrainedTokenizerBase, 
         blocking_strategy: BlockingStrategy, 
-    ) -> ILQLDataset:
+    ) -> IQLDataset:
         
-        data = ILQLData.block(ilql_data_list, blocking_strategy, tokenizer)
+        data = IQLData.block(iql_data_list, blocking_strategy, tokenizer)
 
         return cls(**data)
 
-class _ILQLIteratorDataset:
-    def __init__(self, ilql_data: Iterator[Dict[str, np.ndarray]]):
-        self.ilql_data = ilql_data
+class _IQLIteratorDataset:
+    def __init__(self, iql_data: Iterator[Dict[str, np.ndarray]]):
+        self.iql_data = iql_data
 
     def __next__(self):
-        item = next(self.ilql_data)
+        item = next(self.iql_data)
         return {
             'input_ids': jnp.asarray(item['input_ids'], dtype=jnp.int32), 
             'should_take_action': jnp.asarray(item['should_take_action'], dtype=jnp.bool_), 
@@ -146,25 +146,25 @@ class _ILQLIteratorDataset:
             'next_dones': jnp.asarray(item['next_dones'], dtype=jnp.float32) if item['next_dones'] is not None else None, 
         }
 
-class ILQLIterableDataset(IterableDataset):
-    def __init__(self, ilql_data: Iterable[Dict[str, np.ndarray]]):
-        self.ilql_data = ilql_data
+class IQLIterableDataset(IterableDataset):
+    def __init__(self, iql_data: Iterable[Dict[str, np.ndarray]]):
+        self.iql_data = iql_data
     
     def __iter__(self):
-        return _ILQLIteratorDataset(iter(self.ilql_data))
+        return _IQLIteratorDataset(iter(self.iql_data))
     
     @classmethod
-    def from_ilql_data_iterable(
+    def from_iql_data_iterable(
         cls, 
-        ilql_data: Iterable[ILQLData], 
+        iql_data: Iterable[IQLData], 
         tokenizer: PreTrainedTokenizerBase, 
         blocking_strategy: BlockingStrategy, 
-    ) -> ILQLIterableDataset:
+    ) -> IQLIterableDataset:
         
         class _TokensIterable(Iterable):
             def _tokens_generator(self):
-                for item in ilql_data:
-                    yield jax.tree_util.tree_map(lambda x: x[0], ILQLData.block([item], blocking_strategy, tokenizer))
+                for item in iql_data:
+                    yield jax.tree_util.tree_map(lambda x: x[0], IQLData.block([item], blocking_strategy, tokenizer))
 
             def __iter__(self):
                 return self._tokens_generator()
