@@ -100,7 +100,7 @@ def main(
     force_pad_embeddings: bool=False, 
 
     should_restore_loop_state: bool=False, 
-    reranker: bool=True,
+    reranker: bool=False,
     seed: int=0,
 ):
     input_args = locals()
@@ -355,12 +355,12 @@ def main(
     # inference = GPT2ILQLInference.load_inference(value_rl_inference, target_value_rl_inference, loss_fn)
     inference = GPT2ILQLInference.load_inference(
         GPT2ValueRLInference.load_inference(
-        pi_beta_params=pi_beta_params,
+        pi_beta_params=None,
         base_params=base_train_state.params, 
         q1_head_params=q1_head_train_state.params, 
         q2_head_params=q2_head_train_state.params, 
         v_head_params=v_head_train_state.params, 
-        pi_beta_model=base_model,
+        pi_beta_model=None,
         base_model=base_model, 
         q_head_model=q_head, 
         v_head_model=v_head, 
@@ -369,12 +369,12 @@ def main(
         dp_shard_logits=True, 
     ), 
         GPT2ValueRLInference.load_inference(
-        pi_beta_params=pi_beta_params,
+        pi_beta_params=None,
         base_params=target_base_params,
         q1_head_params=q1_target_head_params,
         q2_head_params=q2_target_head_params,
         v_head_params=None,
-        pi_beta_model=base_model,
+        pi_beta_model=None,
         base_model=base_model,
         q_head_model=q_head,
         v_head_model=None,

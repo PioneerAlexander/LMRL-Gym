@@ -50,18 +50,19 @@ class GPT2ValueRLInference(ValueRLInference):
         q2_head_params_partition_spec = PS() if q2_head_params is None else match_partition_rules(q_head_model.config.get_partition_rules(), q2_head_params)
         v_head_params_partition_spec = PS() if v_head_params is None else match_partition_rules(v_head_model.config.get_partition_rules(), v_head_params)
 
-        generator = None
-        if pi_beta_model is not None:
-            generator = GPT2ValueRLGeneration(
-                base_model_config=base_model.config, 
-                pi_beta=pi_beta_model, 
-                value_base=base_model, 
-                q_head=q_head_model, 
-                beta=beta, 
-            )
+        # generator = None
+        # if pi_beta_model is not None:
+        generator = GPT2ValueRLGeneration(
+            base_model_config=base_model.config, 
+            pi_beta=pi_beta_model, 
+            value_base=base_model, 
+            q_head=q_head_model, 
+            beta=beta, 
+        )
 
-        if pi_beta_params is not None:
-            @partial(
+
+        # if pi_beta_params is not None:
+        @partial(
                 pjit, 
                 static_argnames=('generation_config', 'trace'), 
                 in_shardings=(
@@ -75,8 +76,8 @@ class GPT2ValueRLInference(ValueRLInference):
                     NamedSharding(mesh, PS()), 
                 ), 
                 out_shardings=NamedSharding(mesh, PS()), 
-            )
-            def _generate(
+        )
+        def _generate(
                 pi_beta_params: Optional[PyTree], 
                 base_params: PyTree, 
                 q1_head_params: PyTree, 
@@ -87,7 +88,7 @@ class GPT2ValueRLInference(ValueRLInference):
                 prng_key: Optional[jax.random.PRNGKeyArray]=None, 
                 generation_config: Optional[FrozenDict]=None, 
                 trace: bool=True, 
-            ) -> Union[FlaxSampleOutput, FlaxGreedySearchOutput, FlaxBeamSearchOutput]:
+        ) -> Union[FlaxSampleOutput, FlaxGreedySearchOutput, FlaxBeamSearchOutput]:
                 # data parallel shard inputs
                 input_ids = with_named_sharding_constraint(input_ids, mesh, PS(("dp", "fsdp"), None))
                 attention_mask = with_named_sharding_constraint(attention_mask, mesh, PS(("dp", "fsdp"), None))
@@ -95,6 +96,9 @@ class GPT2ValueRLInference(ValueRLInference):
                 # NOTE: position_ids ignored by transformers
 
                 # generate from model
+                input_ids = with_named_sharding_constraint(input_ids, mesh, PS(("dp", "fsdp"), None))
+                attention_mask = with_named_sharding_constraint(attention_mask, mesh, PS(("dp", "fsdp"), None))
+                position_ids = with_named_sharding_constraint(position_ids, mesh, PS(("dp", "fsdp"), None))
                 output = generator.generate(
                     input_ids=input_ids, 
                     attention_mask=attention_mask, 
@@ -105,20 +109,6 @@ class GPT2ValueRLInference(ValueRLInference):
                 )
                 
                 return output
-        else:
-            def _generate(
-                pi_beta_params: Optional[PyTree], 
-                base_params: PyTree, 
-                q1_head_params: PyTree, 
-                q2_head_params: Optional[PyTree], 
-                input_ids: jax.Array, 
-                attention_mask: jax.Array, 
-                position_ids: jax.Array, 
-                prng_key: Optional[jax.random.PRNGKeyArray]=None, 
-                generation_config: Optional[FrozenDict]=None, 
-                trace: bool=True, 
-            ) -> Union[FlaxSampleOutput, FlaxGreedySearchOutput, FlaxBeamSearchOutput]:
-                raise NotImplementedError
         
         @partial(
             pjit, 
