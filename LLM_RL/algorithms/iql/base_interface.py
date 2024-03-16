@@ -104,7 +104,6 @@ def ilql_loss(
     q2_cql_loss = (mask * q2_cql_loss).sum() / n
     
     loss = q1_loss + q2_loss + v_loss + cql_weight * (q1_cql_loss + q2_cql_loss) + policy_weight * policy_loss
-
     logs = dict(
         losses=dict(
             total_loss=loss, 
@@ -113,6 +112,7 @@ def ilql_loss(
             v_loss=v_loss, 
             q1_cql_loss=q1_cql_loss, 
             q2_cql_loss=q2_cql_loss, 
+            policy_loss=policy_loss,
         ), 
         q1=get_tensor_stats(q1sa_selected, mask=sa_mask, n=n), 
         q2=get_tensor_stats(q2sa_selected, mask=sa_mask, n=n), 
