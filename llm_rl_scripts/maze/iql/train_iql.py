@@ -63,7 +63,7 @@ def main(
     tau: float=0.99,
     cql_weight: float=0.5,
     gamma: float=0.99,
-    policy_weight: float=16.0,
+    beta: float=16.0,
 
     train_bsize: int=32, 
     grad_accum_steps: int=1, 
@@ -74,8 +74,8 @@ def main(
     max_length: int=80, 
 
     log_every: int=256, 
-    eval_every_steps: Optional[int]=400, 
-    eval_every_epochs: Optional[int]=10, 
+    eval_every_steps: Optional[int]=None, 
+    eval_every_epochs: Optional[int]=4, 
     eval_at_beginning: bool=True, 
     eval_at_end: bool=True, 
 
@@ -104,7 +104,7 @@ def main(
 ):
     input_args = locals()
     print(input_args)
-    # model_load_path = f"{model_load_path}/{seed}/last"
+    model_load_path = f"{model_load_path}/{seed}/last"
     tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
     tokenizer.add_special_tokens({'pad_token': '<|pad|>'})
 
@@ -295,7 +295,7 @@ def main(
         with open(os.path.join(convert_path(model_load_path), 'loop_state.pkl'), 'rb') as f:
             loop_state = pkl.load(f)
     
-    loss_fn = partial(iql_loss, gamma=gamma, tau=tau, cql_weight=cql_weight, policy_weight=policy_weight)
+    loss_fn = partial(iql_loss, gamma=gamma, tau=tau, cql_weight=cql_weight, beta=beta)
 
     train = GPT2IQLTrain.load_train(
         base_train_state=base_train_state, 
@@ -360,7 +360,7 @@ def main(
         q_head_model=q_head, 
         v_head_model=v_head, 
         tokenizer=tokenizer,  
-        beta=policy_weight, 
+        beta=beta, 
         dp_shard_logits=True, 
     ), 
         GPT2ValueRLInference.load_inference(
@@ -374,12 +374,13 @@ def main(
         q_head_model=q_head,
         v_head_model=None,
         tokenizer=tokenizer,
-        beta=policy_weight,
+        beta=beta,
         dp_shard_logits=True,
     ),
         loss_fn,
     )
-    save_dir = outputs_path + "/" + str(seed)
+    
+    save_dir = f"{outputs_path}/{seed}/{beta}/{tau}"
     exp_name = str(seed)
 
     print(save_dir)
@@ -500,7 +501,7 @@ def main(
             raw_results, summary_results, mean_reward = text_env_eval(
                 env=env,
                 policy=sample_policy,
-                n_rollouts=16,
+                n_rollouts=32,
                 bsize=16,
                 env_options={"init_position": start_position},
             )

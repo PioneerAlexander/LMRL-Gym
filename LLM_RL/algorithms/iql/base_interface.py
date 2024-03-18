@@ -44,7 +44,7 @@ def iql_loss(
     gamma: Union[float, jax.Array], 
     tau: Union[float, jax.Array], 
     cql_weight: Union[float, jax.Array], 
-    policy_weight: Union[float, jax.Array],
+    beta: Union[float, jax.Array],
 ) -> Tuple[jnp.ndarray, Any]:
     # should be an action in the batch
     mask = should_take_action.astype(jnp.float32) * attention_mask
@@ -94,7 +94,7 @@ def iql_loss(
     # policy advantage-weighted loss
     base_logprobs = -optax.softmax_cross_entropy_with_integer_labels(base_logits[:, :-1], token_ids)
 
-    policy_loss = -(jnp.exp(advantage) * base_logprobs.reshape((-1,))).mean() 
+    policy_loss = -(jnp.exp(beta * advantage) * base_logprobs.reshape((-1,))).mean() 
     
     # compute cql loss on both q heads
     q1_cql_loss = optax.softmax_cross_entropy_with_integer_labels(q1_logits, token_ids)
@@ -103,7 +103,7 @@ def iql_loss(
     q2_cql_loss = optax.softmax_cross_entropy_with_integer_labels(q2_logits, token_ids)
     q2_cql_loss = (mask * q2_cql_loss).sum() / n
     
-    loss = q1_loss + q2_loss + v_loss + cql_weight * (q1_cql_loss + q2_cql_loss) + policy_weight * policy_loss
+    loss = q1_loss + q2_loss + v_loss + cql_weight * (q1_cql_loss + q2_cql_loss) + policy_loss
     logs = dict(
         losses=dict(
             total_loss=loss, 
