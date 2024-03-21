@@ -2,22 +2,27 @@ method: grid
 
 parameters:
   seed:
-    values:
-      - 0
+    values: [1]
   cql_weight:
     values:
       - 1
+  beta:
+    values: 
+      - 8
+  tau:
+    values: [0.95]
 
 command:
-  - ${env}
-  - python
-  - -m
-  - llm_rl_scripts.maze.iql.train_iql
-  - PARAMS
-  - bc_train_maze_checkpoints
-  - datasets/fully_observed_maze_data.jsonl
-  - --outputs-path=iql_train_maze_checkpoints
-  - --epochs=1
-  - --train_bsize=64
-  - --eval_every_epochs=10
-  - ${args}
+- ${env}
+- python3
+- -m
+- llm_rl_scripts.maze.iql.train_iql
+- PARAMS
+- bc_train_maze_checkpoints/2202/
+- datasets/fully_observed_maze_data.jsonl
+- --outputs-path=iql_train_maze_checkpoints/test/search/
+- --epochs=50
+- --train_bsize=64
+- --eval_every_epochs=2
+- ${args}
+

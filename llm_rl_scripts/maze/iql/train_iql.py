@@ -80,7 +80,7 @@ def main(
     eval_at_end: bool=True, 
 
     save_every_steps: Optional[int]=None, 
-    save_every_epochs: Optional[int]=5, 
+    save_every_epochs: Optional[int]=None, 
     save_at_beginning: bool=False, 
     save_at_end: bool=True, 
     save_best: bool=False, 
