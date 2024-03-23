@@ -1,4 +1,5 @@
 from typing import Optional
+from collections import defaultdict
 import tyro
 from JaxSeq.bucket_manager import open_with_bucket as open
 from JaxSeq.utils import convert_path, load_mesh, setup_experiment_save
@@ -36,6 +37,7 @@ from LLM_RL.algorithms.iql.gpt2.score_fn import build_iql_score_fn
 import random
 import wandb
 from torch import manual_seed
+from flax.traverse_util import flatten_dict, unflatten_dict
 
 def main(
     model_load_mode: ModelLoadMode, 
@@ -104,7 +106,7 @@ def main(
 ):
     input_args = locals()
     print(input_args)
-    model_load_path = f"{model_load_path}/{seed}/last"
+    # model_load_path = f"{model_load_path}/{seed}/last"
     tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
     tokenizer.add_special_tokens({'pad_token': '<|pad|>'})
 
@@ -388,10 +390,12 @@ def main(
         embed()
 
     # policy_prng = jax.random.PRNGKey(seed)
-    def evaluate(inference: GPT2IQLInference):
+    def evaluate(inference: GPT2IQLInference, epoch: int):
         nonlocal policy_prng
         policy_prng, new_key = jax.random.split(policy_prng)
         # embed()
+        all_results = dict()
+        interactions = dict()
         if reranker: 
             sample_policy = ReRankerSamplePolicy(
                 proposal_fn=maze_proposal_function,
@@ -472,6 +476,11 @@ def main(
         goal = (8, 6)
         correct_answers = double_t_maze_optimal_directions()
         positions = np.argwhere(maze == 0).tolist()    # note make sure to set temperature to 0
+        possible_positions = list(zip(*np.where(env.maze==0)))
+        for goal in env.valid_goals:
+          possible_positions.remove(tuple(goal.tolist()))        
+        results = dict()
+        avg_dict = defaultdict(float)
         with mesh:
             num_correct = 0
             for position in positions:
@@ -497,22 +506,41 @@ def main(
         accuracy = num_correct/(len(positions)-1)*100
         print("Accuracy: ", accuracy)
         wandb.log({"accuracy": accuracy})
-        with mesh: 
-            raw_results, summary_results, mean_reward = text_env_eval(
-                env=env,
-                policy=sample_policy,
-                n_rollouts=32,
-                bsize=16,
-                env_options={"init_position": start_position},
-            )
-            wandb.log(mean_reward)
+        # with mesh: 
+        #     raw_results, summary_results, mean_reward = text_env_eval(
+        #         env=env,
+        #         policy=sample_policy,
+        #         n_rollouts=32,
+        #         bsize=16,
+        #         env_options={"init_position": start_position},
+        #     )
+        #     wandb.log(mean_reward)
+        mean_rewards = jnp.empty((25,))
+        with mesh:
+          for idx, position in enumerate(possible_positions):
+              position = tuple(position)
+              interactions[str(position)], results[str(position)], mean_reward = text_env_eval(
+                  env=env,
+                  policy=policy,
+                  n_rollouts=32, # do multiple, also do no sampling policy 
+                  verbose=True,
+                  env_options={"init_position": position},
+                  bsize=32,
+              )
+              mean_rewards.at[idx].set(mean_reward["mean"])
+          for k, v in flatten_dict(results[str(position)]).items():
+              avg_dict[k] += v
+        for k, v in avg_dict.items():
+            avg_dict[k] = v/len(possible_positions)
+        results["avg_reward"] = unflatten_dict(dict(avg_dict))
+        all_results["reward_eval"] = results
+        wandb.log({"score": jnp.mean(mean_rewards), "epoch": epoch})
+        # for item in raw_results:
+        #     print('='*25)
+        #     print(text_history_to_str(item[-1].post_transition_history))
+        #     print('='*25)
 
-        for item in raw_results:
-            print('='*25)
-            print(text_history_to_str(item[-1].post_transition_history))
-            print('='*25)
-
-        logs = pull_logs(summary_results)
+        logs = pull_logs(all_results)
         log({"sample": logs, "move_accuracy": accuracy}, use_wandb and is_main_process)
 
         return float('inf'), logs
