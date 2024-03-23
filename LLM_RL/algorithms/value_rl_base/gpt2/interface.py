@@ -35,6 +35,7 @@ class GPT2ValueRLInference(ValueRLInference):
         v_head_model: Optional[nn.Module], 
         tokenizer: PreTrainedTokenizerBase, 
         beta: float=0.0, 
+        is_cql: bool=False,
         dp_shard_logits: bool=True, 
     ):
         mesh = base_model.config.mesh
@@ -58,6 +59,7 @@ class GPT2ValueRLInference(ValueRLInference):
             value_base=base_model, 
             q_head=q_head_model, 
             beta=beta, 
+            is_cql=is_cql,
         )
 
 

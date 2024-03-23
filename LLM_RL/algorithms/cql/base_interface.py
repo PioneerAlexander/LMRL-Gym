@@ -22,7 +22,6 @@ from JaxSeq.models.base_interface import GenerationFromStrOutput, Inference
 from LLM_RL.environment import BatchedTextPolicy
 from LLM_RL.algorithms.value_rl_base.base_interface import ValueRLForwardOutput, ValueRLInference
 from LLM_RL.algorithms.ilql.base_interface import get_query_indicators
-from LLM_RL.algorithms.ilql.base_interface import ILQLInference
 
 # loss function
 
@@ -216,7 +215,11 @@ class CQLTrain(struct.PyTreeNode):
             q2_target_head_params=q2_target_head_params, 
         ), loss, logs
 
-class CQLInference(ILQLInference):
+class CQLForwardOutput(NamedTuple):
+    output: ValueRLForwardOutput
+    target_output: ValueRLForwardOutput
+
+class CQLInference(struct.PyTreeNode):
     # def _eval_loss(
     #     base_params: PyTree, 
     #     target_base_params: Optional[PyTree], 
@@ -241,8 +244,113 @@ class CQLInference(ILQLInference):
     #     train: bool=False, 
     # ) -> Tuple[jax.Array, PyTree]:
     #     raise NotImplementedError
+      def generate(
+        self, 
+        input_ids: jax.Array, 
+        prng_key: Optional[jax.random.PRNGKeyArray], 
+        generation_config: Optional[GenerationConfig]=None, 
+        attention_mask: Optional[jax.Array]=None, 
+        position_ids: Optional[jax.Array]=None, 
+        trace: bool=True, 
+        target_generate: bool=True, 
+    ) -> Union[FlaxSampleOutput, FlaxGreedySearchOutput, FlaxBeamSearchOutput]:
+        obj = self.target_value_inference if target_generate else self.value_inference
+        return obj.generate(
+            input_ids, 
+            prng_key, 
+            generation_config=generation_config, 
+            attention_mask=attention_mask, 
+            position_ids=position_ids, 
+            trace=trace, 
+        )
     
-    def eval_loss(
+      def generate_from_str(
+        self, 
+        input_strs: List[str], 
+        prng_key: Optional[jax.random.PRNGKeyArray], 
+        blocking_strategy: BlockingStrategy=BlockingStrategy(padding=Padding.LEFT, truncation=Truncation.LEFT, max_length=None), 
+        generation_config: Optional[GenerationConfig]=None, 
+        input_token_process: Optional[Callable[[List[int]], List[int]]]=None, 
+        target_token_process: Optional[Callable[[List[int]], List[int]]]=None, 
+        trace: bool=True, 
+        target_generate: bool=True, 
+    ) -> GenerationFromStrOutput:
+        obj = self.target_value_inference if target_generate else self.value_inference
+        return obj.generate_from_str(
+            input_strs, 
+            prng_key, 
+            blocking_strategy=blocking_strategy, 
+            generation_config=generation_config, 
+            input_token_process=input_token_process, 
+            target_token_process=target_token_process, 
+            trace=trace, 
+        )
+    
+      def forward(
+        self, 
+        input_ids: jax.Array, 
+        attention_mask: Optional[jax.Array]=None, 
+        position_ids: Optional[jax.Array]=None, 
+        output_attentions: Optional[bool]=None, 
+        train: bool=False, 
+        prng_key: Optional[jax.random.PRNGKeyArray]=None, 
+    ) -> CQLForwardOutput:
+        input_ids_cp = input_ids.copy()
+        attention_mask_cp = attention_mask.copy() if attention_mask is not None else None
+        position_ids_cp = position_ids.copy() if position_ids is not None else None
+        output_attentions_cp = output_attentions.copy() if output_attentions is not None else None
+        prng_key_cp = prng_key.copy() if prng_key is not None else None
+        return CQLForwardOutput(
+            output=self.value_inference.forward(
+                input_ids, 
+                attention_mask=attention_mask, 
+                position_ids=position_ids, 
+                output_attentions=output_attentions, 
+                train=train, 
+                prng_key=prng_key, 
+            ), 
+            target_output=self.target_value_inference.forward(
+                input_ids_cp, 
+                attention_mask=attention_mask_cp, 
+                position_ids=position_ids_cp, 
+                output_attentions=output_attentions_cp, 
+                train=train, 
+                prng_key=prng_key_cp, 
+            ), 
+        )
+    
+      def forward_from_str(
+        self, 
+        input_strs: List[str], 
+        blocking_strategy: BlockingStrategy=BlockingStrategy(padding=Padding.RIGHT, truncation=Truncation.RIGHT, max_length=None), 
+        output_attentions: Optional[bool]=None, 
+        output_hidden_states: Optional[bool]=None, 
+        train: bool=False, 
+        prng_key: Optional[jax.random.PRNGKeyArray]=None, 
+        input_token_process: Optional[Callable[[List[int]], List[int]]]=None, 
+    ) -> CQLForwardOutput:
+        return CQLForwardOutput(
+            output=self.value_inference.forward_from_str(
+                input_strs, 
+                blocking_strategy=blocking_strategy, 
+                output_attentions=output_attentions, 
+                output_hidden_states=output_hidden_states, 
+                train=train, 
+                prng_key=prng_key, 
+                input_token_process=input_token_process, 
+            ), 
+            target_output=self.target_value_inference.forward_from_str(
+                input_strs, 
+                blocking_strategy=blocking_strategy, 
+                output_attentions=output_attentions, 
+                output_hidden_states=output_hidden_states, 
+                train=train, 
+                prng_key=prng_key, 
+                input_token_process=input_token_process, 
+            ), 
+        )
+    
+      def eval_loss(
         self, 
         input_ids: jax.Array, # [batch, time]
         should_take_action: jax.Array, # [batch, time-1]
@@ -303,5 +411,5 @@ class CQLInference(ILQLInference):
 
         return loss, logs
     
-    def eval_loss_from_str(self, *args, **kwargs):
-        raise NotImplementedError
+      def eval_loss_from_str(self, *args, **kwargs):
+         raise NotImplementedError

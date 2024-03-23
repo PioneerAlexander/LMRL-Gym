@@ -216,8 +216,6 @@ class GPTJCQLTrain(CQLTrain):
                     q1_head_output = jax.lax.stop_gradient(q1_head_output)
                 if detach_q2:
                     q2_head_output = jax.lax.stop_gradient(q2_head_output)
-                if detach_v:
-                    v_head_output = jax.lax.stop_gradient(v_head_output)
                 target_q1_head_output = jax.lax.stop_gradient(target_q1_head_output)
                 target_q2_head_output = jax.lax.stop_gradient(target_q2_head_output)
 
@@ -246,20 +244,13 @@ class GPTJCQLTrain(CQLTrain):
                         train=train, 
                         rngs={'dropout': new_key} if prng_key is not None else None, 
                     )
-                    v_final = next_token_v_head_output * (1 - next_dones.astype(jnp.float32))
                 else:
                     last_action_idxs = (should_take_action.shape[1]-1)-jnp.argmax(jnp.flip(should_take_action, axis=1).astype(jnp.int32), axis=1)+1
                     last_token_idxs = (attention_mask.shape[1]-1)-jnp.argmax(jnp.flip(attention_mask, axis=1).astype(jnp.int32), axis=1)
                     final_state_idxs = ((1 - dones) * last_action_idxs + dones * last_token_idxs).astype(jnp.int32)
-                    v_final = v_full[jnp.arange(0, should_take_action.shape[0], dtype=jnp.int32), final_state_idxs]
-                    v_final = v_final * (1 - dones)
-                v_final = jax.lax.stop_gradient(v_final)
-
                 loss, info = loss_fn(
                     q1, 
                     q2, 
-                    v, 
-                    v_final, 
                     target_q1, 
                     target_q2, 
                     q1_logits, 

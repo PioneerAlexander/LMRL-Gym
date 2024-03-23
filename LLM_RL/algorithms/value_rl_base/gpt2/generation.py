@@ -1,3 +1,4 @@
+from types import NotImplementedType
 from typing import Optional, Tuple, Union
 from dataclasses import dataclass
 from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
@@ -26,12 +27,14 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
         value_base: FlaxPreTrainedModel, 
         q_head: nn.Module, 
         beta: Union[float, jnp.ndarray], 
+        is_cql: bool=False, 
     ):
         self.config = base_model_config
         self.pi_beta = pi_beta
         self.value_base = value_base
         self.q_head = q_head
         self.beta = beta
+        self.is_cql=is_cql
     
     def __call__(
         self,
@@ -87,7 +90,7 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
         base_kvs = value_base_outputs.past_key_values
         if not has_pi_beta:
           return GPT2ValueRLGenerationOutput(logits=value_base_outputs.logits, past_key_values=(None, base_kvs))
-        
+
         new_dropout_rng = None
         if dropout_rng is not None:
             dropout_rng, new_dropout_rng = jax.random.split(dropout_rng)
@@ -97,7 +100,8 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
             train=train, 
             rngs={'dropout': new_dropout_rng} if train else None, 
         )
-
+        if self.is_cql:
+          return GPT2ValueRLGenerationOutput(logits=q1_logits, past_key_values=(None, base_kvs))
         # q2 is optional
         if q2_head_params is not None:
             new_dropout_rng = None

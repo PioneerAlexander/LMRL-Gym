@@ -90,7 +90,7 @@ class ValueRLInference(struct.PyTreeNode):
             position_ids, 
             prng_key, 
             freeze(generation_config.to_dict()) if generation_config is not None else None, 
-            trace, 
+            trace,
         )
     
     def generate_from_str(
