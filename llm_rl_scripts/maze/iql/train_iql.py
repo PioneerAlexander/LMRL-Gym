@@ -522,10 +522,10 @@ def main(
               interactions[str(position)], results[str(position)], mean_reward = text_env_eval(
                   env=env,
                   policy=policy,
-                  n_rollouts=1, # do multiple, also do no sampling policy 
+                  n_rollouts=32, # do multiple, also do no sampling policy 
                   verbose=True,
                   env_options={"init_position": position},
-                  bsize=1,
+                  bsize=32,
               )
               mean_rewards[idx] = mean_reward["mean"]
           for k, v in flatten_dict(results[str(position)]).items():
