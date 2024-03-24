@@ -1,4 +1,5 @@
 from typing import Optional
+from collections import defaultdict
 import tyro
 from JaxSeq.bucket_manager import open_with_bucket as open
 from JaxSeq.utils import convert_path, load_mesh, setup_experiment_save
@@ -103,7 +104,7 @@ def main(
 ):
     input_args = locals()
     print(input_args)
-    model_load_path = f"{model_load_path}/{seed}/last"
+    # model_load_path = f"{model_load_path}/{seed}/last"
     tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
     tokenizer.add_special_tokens({'pad_token': '<|pad|>'})
 

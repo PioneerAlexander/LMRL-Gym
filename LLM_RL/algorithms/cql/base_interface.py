@@ -220,30 +220,11 @@ class CQLForwardOutput(NamedTuple):
     target_output: ValueRLForwardOutput
 
 class CQLInference(struct.PyTreeNode):
-    # def _eval_loss(
-    #     base_params: PyTree, 
-    #     target_base_params: Optional[PyTree], 
-    #     q1_head_params: PyTree, 
-    #     q2_head_params: PyTree, 
-    #     q1_target_head_params: PyTree, 
-    #     q2_target_head_params: PyTree, 
-
-    #     input_ids: jax.Array, 
-    #     attention_mask: jax.Array, 
-    #     position_ids: jax.Array, 
-    #     should_take_action: jax.Array, 
-    #     rewards: jax.Array, 
-    #     dones: jax.Array, 
-
-    #     next_token_ids: Optional[jax.Array], 
-    #     next_tokens_attention_mask: Optional[jax.Array], 
-    #     next_tokens_position_ids: Optional[jax.Array], 
-    #     next_dones: Optional[jax.Array], 
-
-    #     prng_key: Optional[jax.random.PRNGKeyArray]=None, 
-    #     train: bool=False, 
-    # ) -> Tuple[jax.Array, PyTree]:
-    #     raise NotImplementedError
+      value_inference: ValueRLInference
+      target_value_inference: ValueRLInference
+      _eval_loss: Callable = struct.field(pytree_node=False)
+      use_target_base_for_loss: bool = struct.field(pytree_node=False, default=True)
+      
       def generate(
         self, 
         input_ids: jax.Array, 

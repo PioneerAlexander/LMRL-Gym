@@ -357,7 +357,7 @@ class GPT2CQLInference(CQLInference):
         mesh = value_inference.base_model.config.mesh
         assert mesh is not None
         assert mesh == value_inference.q_head_model.config.mesh
-        assert mesh == value_inference.v_head_model.config.mesh
+        
         assert mesh == target_value_inference.base_model.config.mesh
         assert mesh == target_value_inference.q_head_model.config.mesh
 
@@ -365,7 +365,6 @@ class GPT2CQLInference(CQLInference):
         target_base_params_partition_spec = match_partition_rules(target_value_inference.base_model.config.get_partition_rules(), target_value_inference.base_params)
         q1_head_params_partition_spec = match_partition_rules(value_inference.q_head_model.config.get_partition_rules(), value_inference.q1_head_params)
         q2_head_params_partition_spec = match_partition_rules(value_inference.q_head_model.config.get_partition_rules(), value_inference.q2_head_params)
-        v_head_params_partition_spec = match_partition_rules(value_inference.v_head_model.config.get_partition_rules(), value_inference.v_head_params)
         q1_target_head_params_partition_spec = match_partition_rules(target_value_inference.q_head_model.config.get_partition_rules(), target_value_inference.q1_head_params)
         q2_target_head_params_partition_spec = match_partition_rules(target_value_inference.q_head_model.config.get_partition_rules(), target_value_inference.q2_head_params)
         
@@ -377,7 +376,6 @@ class GPT2CQLInference(CQLInference):
                 jax.tree_util.tree_map(lambda ps: NamedSharding(mesh, ps), target_base_params_partition_spec), 
                 jax.tree_util.tree_map(lambda ps: NamedSharding(mesh, ps), q1_head_params_partition_spec), 
                 jax.tree_util.tree_map(lambda ps: NamedSharding(mesh, ps), q2_head_params_partition_spec), 
-                jax.tree_util.tree_map(lambda ps: NamedSharding(mesh, ps), v_head_params_partition_spec), 
                 jax.tree_util.tree_map(lambda ps: NamedSharding(mesh, ps), q1_target_head_params_partition_spec), 
                 jax.tree_util.tree_map(lambda ps: NamedSharding(mesh, ps), q2_target_head_params_partition_spec), 
                 NamedSharding(mesh, PS()), 
@@ -402,7 +400,6 @@ class GPT2CQLInference(CQLInference):
             target_base_params: Optional[PyTree], 
             q1_head_params: PyTree, 
             q2_head_params: PyTree, 
-            v_head_params: PyTree, 
             q1_target_head_params: PyTree, 
             q2_target_head_params: PyTree, 
 
@@ -501,16 +498,6 @@ class GPT2CQLInference(CQLInference):
                 prng_key, new_key = jax.random.split(prng_key)
             q2_head_output = value_inference.q_head_model.apply(
                 {'params': q2_head_params}, 
-                base_model_output.hidden_states[-1], 
-                train=train, 
-                rngs={'dropout': new_key} if prng_key is not None else None, 
-            )
-
-            new_key = None
-            if prng_key is not None:
-                prng_key, new_key = jax.random.split(prng_key)
-            v_head_output = value_inference.v_head_model.apply(
-                {'params': v_head_params}, 
                 base_model_output.hidden_states[-1], 
                 train=train, 
                 rngs={'dropout': new_key} if prng_key is not None else None, 
