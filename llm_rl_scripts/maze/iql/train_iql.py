@@ -106,7 +106,7 @@ def main(
 ):
     input_args = locals()
     print(input_args)
-    # model_load_path = f"{model_load_path}/{seed}/last"
+    model_load_path = f"{model_load_path}/{seed}/last"
     tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
     tokenizer.add_special_tokens({'pad_token': '<|pad|>'})
 
@@ -515,26 +515,26 @@ def main(
         #         env_options={"init_position": start_position},
         #     )
         #     wandb.log(mean_reward)
-        mean_rewards = jnp.empty((25,))
+        mean_rewards = np.empty((25,))
         with mesh:
           for idx, position in enumerate(possible_positions):
               position = tuple(position)
               interactions[str(position)], results[str(position)], mean_reward = text_env_eval(
                   env=env,
                   policy=policy,
-                  n_rollouts=32, # do multiple, also do no sampling policy 
+                  n_rollouts=1, # do multiple, also do no sampling policy 
                   verbose=True,
                   env_options={"init_position": position},
-                  bsize=32,
+                  bsize=1,
               )
-              mean_rewards.at[idx].set(mean_reward["mean"])
+              mean_rewards[idx] = mean_reward["mean"]
           for k, v in flatten_dict(results[str(position)]).items():
               avg_dict[k] += v
         for k, v in avg_dict.items():
             avg_dict[k] = v/len(possible_positions)
         results["avg_reward"] = unflatten_dict(dict(avg_dict))
         all_results["reward_eval"] = results
-        wandb.log({"score": jnp.mean(mean_rewards), "epoch": epoch})
+        wandb.log({"score": mean_rewards.mean(), "epoch": epoch})
         # for item in raw_results:
         #     print('='*25)
         #     print(text_history_to_str(item[-1].post_transition_history))
