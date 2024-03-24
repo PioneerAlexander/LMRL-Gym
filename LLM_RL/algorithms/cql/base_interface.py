@@ -86,7 +86,7 @@ def cql_loss(
     q2_cql_loss = (mask * q2_cql_loss).sum() / n
     
     loss = q1_loss + q2_loss + cql_weight * (q1_cql_loss + q2_cql_loss)
-
+    jax.debug.print("loss: {x}", x=loss)
     logs = dict(
         losses=dict(
             total_loss=loss, 
