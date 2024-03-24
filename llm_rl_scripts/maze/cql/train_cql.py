@@ -77,7 +77,7 @@ def main(
     log_every: int=256, 
     eval_every_steps: Optional[int]=None, 
     eval_every_epochs: Optional[int]=4, 
-    eval_at_beginning: bool=True, 
+    eval_at_beginning: bool=False, 
     eval_at_end: bool=True, 
 
     save_every_steps: Optional[int]=None, 

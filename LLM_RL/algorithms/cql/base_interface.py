@@ -30,8 +30,6 @@ def cql_loss(
     q2: jax.Array, # [batch, time-1] output is masked; shift x[:-1]
     target_q1: jax.Array, # [batch, time-1] output is masked; shift x[:-1]
     target_q2: jax.Array, # [batch, time-1] output is masked; shift x[:-1]
-    target_q1_final: jax.Array, # [batch]
-    target_q2_final: jax.Array, # [batch]
     q1_logits: jax.Array, # [batch, time-1, vocab] output is masked; shift x[:-1]
     q2_logits: jax.Array, # [batch, time-1, vocab] output is masked; shift x[:-1]
     token_ids: jax.Array, # [batch, time-1] output is masked; shift x[1:]
@@ -47,9 +45,9 @@ def cql_loss(
     n = mask.sum()
     
     q1sa_flat, q2sa_flat = q1.reshape(-1), q2.reshape(-1)
-    target_q1nssa_flat = jnp.concatenate((target_q1, target_q1_final[..., None]), axis=1).reshape(-1)
-    target_q2nssa_flat = jnp.concatenate((target_q2, target_q2_final[..., None]), axis=1).reshape(-1)
-
+    target_q1nssa_flat = jnp.pad(target_q1, ((0, 0), (0, 1)), 'constant', constant_values=0).reshape(-1)
+    target_q2nssa_flat = jnp.pad(target_q2, ((0, 0), (0, 1)), 'constant', constant_values=0).reshape(-1)
+    # target_q1sa_flat, target_q2sa_flat = target_q1, target_q2.reshape(-1)
     q_query_indicators = get_query_indicators(should_take_action.reshape(-1))
 
     is_next_action = should_take_action.copy()
