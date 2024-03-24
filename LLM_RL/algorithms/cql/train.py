@@ -247,7 +247,7 @@ def train_loop(
             reinit=True, 
             resume="allow", 
         )
-
+    wandb.mark_preempting()
     # initalize training loop state
     train_logs = []
     best_perf = loop_state.get('best_perf', float('inf'))
@@ -324,7 +324,7 @@ def train_loop(
         nonlocal best_perf
         # get eval logs
         _inference_update()
-        eval_perf, eval_logs = evaluator(inference)
+        eval_perf, eval_logs = evaluator(inference, epoch)
 
         # publish eval logs
         eval_logs = pull_logs(label_logs(eval_logs, 'eval', {'step': step+1, 'epoch': epoch}))
