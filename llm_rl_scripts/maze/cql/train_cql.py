@@ -37,6 +37,7 @@ from LLM_RL.algorithms.iql.gpt2.score_fn import build_iql_score_fn
 import random
 import wandb
 from torch import manual_seed
+from flax.traverse_util import flatten_dict, unflatten_dict
 
 def main(
     model_load_mode: ModelLoadMode, 
