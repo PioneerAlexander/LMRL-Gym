@@ -45,9 +45,9 @@ def cql_loss(
     n = mask.sum()
     
     q1sa_flat, q2sa_flat = q1.reshape(-1), q2.reshape(-1)
-    target_q1nssa_flat = jnp.pad(target_q1, ((0, 0), (0, 1)), 'constant', constant_values=0).reshape(-1)
-    target_q2nssa_flat = jnp.pad(target_q2, ((0, 0), (0, 1)), 'constant', constant_values=0).reshape(-1)
-    # target_q1sa_flat, target_q2sa_flat = target_q1, target_q2.reshape(-1)
+    # target_q1nssa_flat = jnp.pad(target_q1, ((0, 0), (0, 1)), 'constant', constant_values=0).reshape(-1)
+    # target_q2nssa_flat = jnp.pad(target_q2, ((0, 0), (0, 1)), 'constant', constant_values=0).reshape(-1)
+    target_q1nssa_flat, target_q2nssa_flat = target_q1.reshape(-1), target_q2.reshape(-1)
     q_query_indicators = get_query_indicators(should_take_action.reshape(-1))
 
     is_next_action = should_take_action.copy()
@@ -59,12 +59,17 @@ def cql_loss(
     qns_query_indicators = get_query_indicators(is_next_action.reshape(-1))
     # should be the same number of qns as qv, so we can clip the extra padding to match shape
     qns_query_indicators = qns_query_indicators[:q_query_indicators.shape[0], :]
-    
+    batch_size = q1.shape[0]
+    first_dim = qns_query_indicators.shape[0]
+    second_dim = qns_query_indicators.shape[1]
+    tmp_shape = (first_dim, batch_size, second_dim // batch_size)
+    qns_query_indicators_crop = qns_query_indicators.reshape(tmp_shape)[:, :, :-1].reshape((first_dim, second_dim - batch_size))
+
     # extract selected values
     q1sa_selected = (q_query_indicators * q1sa_flat).sum(axis=1)
     q2sa_selected = (q_query_indicators * q2sa_flat).sum(axis=1)
-    target_q1nssa_selected = (qns_query_indicators * target_q1nssa_flat).sum(axis=1)
-    target_q2nssa_selected = (qns_query_indicators * target_q2nssa_flat).sum(axis=1)
+    target_q1nssa_selected = (qns_query_indicators_crop * target_q1nssa_flat).sum(axis=1)
+    target_q2nssa_selected = (qns_query_indicators_crop * target_q2nssa_flat).sum(axis=1)
     rs_selected = (q_query_indicators * rewards.reshape(-1)).sum(axis=1)
 
     # get masks for selected values
@@ -86,7 +91,7 @@ def cql_loss(
     q2_cql_loss = (mask * q2_cql_loss).sum() / n
     
     loss = q1_loss + q2_loss + cql_weight * (q1_cql_loss + q2_cql_loss)
-    jax.debug.print("loss: {x}", x=loss)
+
     logs = dict(
         losses=dict(
             total_loss=loss, 
