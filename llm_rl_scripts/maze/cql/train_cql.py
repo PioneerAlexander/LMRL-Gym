@@ -77,7 +77,7 @@ def main(
     log_every: int=256, 
     eval_every_steps: Optional[int]=None, 
     eval_every_epochs: Optional[int]=4, 
-    eval_at_beginning: bool=False, 
+    eval_at_beginning: bool=True, 
     eval_at_end: bool=True, 
 
     save_every_steps: Optional[int]=None, 
@@ -105,7 +105,7 @@ def main(
 ):
     input_args = locals()
     print(input_args)
-    # model_load_path = f"{model_load_path}/{seed}/last"
+    model_load_path = f"{model_load_path}/{seed}/last"
     tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
     tokenizer.add_special_tokens({'pad_token': '<|pad|>'})
 
@@ -505,10 +505,10 @@ def main(
               interactions[str(position)], results[str(position)], mean_reward = text_env_eval(
                   env=env,
                   policy=policy,
-                  n_rollouts=1, # do multiple, also do no sampling policy 
+                  n_rollouts=32, # do multiple, also do no sampling policy 
                   verbose=True,
                   env_options={"init_position": position},
-                  bsize=1,
+                  bsize=32,
               )
               mean_rewards[idx] = mean_reward["mean"]
           for k, v in flatten_dict(results[str(position)]).items():

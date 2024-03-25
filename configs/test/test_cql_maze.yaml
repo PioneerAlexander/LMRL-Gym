@@ -1,0 +1,23 @@
+method: grid
+
+parameters:
+  seed:
+    values: [1]
+  cql_weight:
+    values:
+      - 1
+
+command:
+- ${env}
+- python3
+- -m
+- llm_rl_scripts.maze.cql.train_cql
+- PARAMS
+- bc_train_maze_checkpoints/2202/
+- datasets/fully_observed_maze_data.jsonl
+- --outputs-path=cql_train_maze_checkpoints/test/
+- --epochs=50
+- --train_bsize=64
+- --eval_every_epochs=2
+- ${args}
+
