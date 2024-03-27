@@ -365,7 +365,7 @@ def main(
         loss_fn,
     )
     
-    save_dir = f"{outputs_path}/{seed}/{cql_weight}/{gamma}"
+    save_dir = f"{outputs_path}/{seed}/{cql_weight}"
     exp_name = str(seed)
 
     print(save_dir)
