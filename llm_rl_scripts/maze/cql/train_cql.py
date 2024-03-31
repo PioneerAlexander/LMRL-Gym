@@ -54,7 +54,7 @@ def main(
     model_mesh_shape: int=-1, 
 
     use_wandb: bool=True, 
-    wandb_project: Optional[str]="cql_maze", 
+    wandb_project: Optional[str]="maze_cql", 
 
     n_rounds: int=1, 
     epochs: int=1, 
