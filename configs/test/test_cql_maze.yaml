@@ -2,7 +2,7 @@ method: grid
 
 parameters:
   seed:
-    values: [1]
+    values: [1, 2, 3]
   cql_weight:
     values:
       - 1
@@ -18,6 +18,6 @@ command:
 - --outputs-path=cql_train_maze_checkpoints/test/
 - --epochs=50
 - --train_bsize=64
-- --eval_every_epochs=2
+- --eval_every_epochs=10
 - ${args}
 
