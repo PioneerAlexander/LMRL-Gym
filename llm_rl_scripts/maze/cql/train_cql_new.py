@@ -33,7 +33,7 @@ from llm_rl_scripts.maze.env.maze_utils import setup_maze_env, pick_start_positi
 from llm_rl_scripts.maze.env.mazes import double_t_maze_optimal_directions, double_t_maze
 from llm_rl_scripts.maze.env.env import describe_observation_give_position, maze_proposal_function
 from LLM_RL.algorithms.ppo.reranker_policy import ReRankerPolicy, ReRankerSamplePolicy
-from LLM_RL.algorithms.iql.gpt2.score_fn import build_iql_score_fn
+from LLM_RL.algorithms.ilql.gpt2.score_fn import build_ilql_score_fn
 import random
 import wandb
 from torch import manual_seed
@@ -102,7 +102,7 @@ def main(
     force_pad_embeddings: bool=False, 
 
     should_restore_loop_state: bool=False, 
-    reranker: bool=False,
+    reranker: bool=True,
     seed: int=0,
 ):
     input_args = locals()
@@ -402,7 +402,7 @@ def main(
         if reranker: 
             sample_policy = ReRankerSamplePolicy(
                 proposal_fn=maze_proposal_function,
-                score_fn=build_iql_score_fn(
+                score_fn=build_ilql_score_fn(
                     inference=inference,
                     pi_beta_inference=None,
                     tokenizer=tokenizer,
@@ -415,7 +415,7 @@ def main(
             
             policy = ReRankerPolicy(
                 proposal_fn=maze_proposal_function,
-                score_fn=build_iql_score_fn(
+                score_fn=build_ilql_score_fn(
                     inference=inference,
                     pi_beta_inference=None,
                     tokenizer=tokenizer,
