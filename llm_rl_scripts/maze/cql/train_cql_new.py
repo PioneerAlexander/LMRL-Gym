@@ -102,7 +102,7 @@ def main(
     force_pad_embeddings: bool=False, 
 
     should_restore_loop_state: bool=False, 
-    reranker: bool=True,
+    reranker: bool=False,
     seed: int=0,
 ):
     input_args = locals()
@@ -364,7 +364,7 @@ def main(
         v_head_model=v_head, 
         tokenizer=tokenizer,  
         beta=beta,
-        is_cql=True,
+        is_cql=False,
         dp_shard_logits=True, 
     ), 
         GPT2ValueRLInference.load_inference(
@@ -379,13 +379,13 @@ def main(
         v_head_model=None,
         tokenizer=tokenizer,
         beta=beta,
-        is_cql=True,
+        is_cql=False,
         dp_shard_logits=True,
     ),
         loss_fn,
     )
     
-    save_dir = f"{outputs_path}/{seed}/{cql_weight}/{beta}"
+    save_dir = f"{outputs_path}/{seed}/{cql_weight}"
     exp_name = str(seed)
 
     print(save_dir)
