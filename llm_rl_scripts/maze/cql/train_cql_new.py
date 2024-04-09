@@ -379,7 +379,7 @@ def main(
         v_head_model=None,
         tokenizer=tokenizer,
         beta=beta,
-        is_cql=False,
+        is_cql=True,
         dp_shard_logits=True,
     ),
         loss_fn,
