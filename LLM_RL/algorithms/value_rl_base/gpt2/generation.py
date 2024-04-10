@@ -88,9 +88,7 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
         )
         base_hidden_states = value_base_outputs.hidden_states[-1]
         base_kvs = value_base_outputs.past_key_values
-        if not has_pi_beta:
-          return GPT2ValueRLGenerationOutput(logits=value_base_outputs.logits, past_key_values=(None, base_kvs))
-
+        
         new_dropout_rng = None
         if dropout_rng is not None:
             dropout_rng, new_dropout_rng = jax.random.split(dropout_rng)
@@ -102,7 +100,10 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
         )
         if self.is_cql:
           return GPT2ValueRLGenerationOutput(logits=q1_logits, past_key_values=(None, base_kvs))
-        # q2 is optional
+        
+        if not has_pi_beta:
+          return GPT2ValueRLGenerationOutput(logits=value_base_outputs.logits, past_key_values=(None, base_kvs))
+      # q2 is optional
         if q2_head_params is not None:
             new_dropout_rng = None
             if dropout_rng is not None:
