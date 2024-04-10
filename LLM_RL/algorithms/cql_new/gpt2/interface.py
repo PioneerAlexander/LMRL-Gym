@@ -175,6 +175,18 @@ class GPT2CQLTrain(CQLTrain):
                         train=train, 
                         output_hidden_states=True, 
                     )
+                    if target_base_params is not None:
+                        next_token_target_base_model_output = base_model(
+                        input_ids=next_token_ids,
+                        attention_mask=next_tokens_attention_mask,
+                        position_ids=next_tokens_position_ids,
+                        params=target_base_params,
+                        dropout_rng=new_key,
+                        train=train,
+                        output_hidden_states=True,
+                        )
+                    else:
+                        next_token_target_base_model_output = next_token_base_model_output
                 
                 # get values
 
@@ -248,38 +260,51 @@ class GPT2CQLTrain(CQLTrain):
                 q1_logits = q1_head_output[:, :-1, :].astype(jnp.float32)
                 q2_logits = q2_head_output[:, :-1, :].astype(jnp.float32)
 
+                target_q1_full = target_q1_head_output.squeeze(2)
+                target_q2_full = target_q2_head_output.squeeze(2)
                 # get policy logits
                 base_logits = base_model_output.logits.astype(jnp.float32)
                 # get next token values
                 if next_token_ids is not None:
                     # just run vf on last token to save some flops
                     last_next_token_idxs = (next_tokens_attention_mask.shape[1]-1)-jnp.argmax(jnp.flip(next_tokens_attention_mask, axis=1).astype(jnp.int32), axis=1)
-                    final_next_token_h = next_token_base_model_output.hidden_states[-1][jnp.arange(0, input_ids.shape[0], dtype=jnp.int32), last_next_token_idxs, :]
+                    final_next_token_h = next_token_target_base_model_output.hidden_states[-1][jnp.arange(0, input_ids.shape[0], dtype=jnp.int32), last_next_token_idxs, :]
                     new_key = None
                     if prng_key is not None:
                         prng_key, new_key = jax.random.split(prng_key)
-                    next_token_v_head_output = v_head_model.apply(
-                        {'params': v_head_params}, 
-                        final_next_token_h, 
+                    next_token_target_q1_head_output = q_head_model.apply(
+                        {'params': q1_head_params},
+                        final_next_token_h,
                         train=train, 
                         rngs={'dropout': new_key} if prng_key is not None else None, 
                     ).squeeze(1)
-                    v_final = next_token_v_head_output * (1 - next_dones.astype(jnp.float32))
+                    next_token_target_q2_head_output = q_head_model.apply(
+                        {'params': q2_head_params},
+                        final_next_token_h,
+                        train=train,
+                        rngs={'dropout': new_key} if prng_key is not None else None,
+                    ).squeeze(1)
+                    target_q1_final = next_token_target_q1_head_output * (1 - next_dones.astype(jnp.float32))
+                    target_q2_final = next_token_target_q2_head_output * (1 - next_dones.astype(jnp.float32))
                 else:
                     last_action_idxs = (should_take_action.shape[1]-1)-jnp.argmax(jnp.flip(should_take_action, axis=1).astype(jnp.int32), axis=1)+1
                     last_token_idxs = (attention_mask.shape[1]-1)-jnp.argmax(jnp.flip(attention_mask, axis=1).astype(jnp.int32), axis=1)
                     final_state_idxs = ((1 - dones) * last_action_idxs + dones * last_token_idxs).astype(jnp.int32)
-                    v_final = v_full[jnp.arange(0, should_take_action.shape[0], dtype=jnp.int32), final_state_idxs]
-                    v_final = v_final * (1 - dones)
-                v_final = jax.lax.stop_gradient(v_final)
-
-
+                    target_q1_final = target_q1_full[jnp.arange(0, should_take_action.shape[0], dtype=jnp.int32), final_state_idxs]
+                    target_q1_final = target_q1_final * (1 - dones)
+                    target_q2_final = target_q2_full[
+                        jnp.arange(0, should_take_action.shape[0], dtype=jnp.int32), final_state_idxs]
+                    target_q2_final = target_q2_final * (1 - dones)
+                target_q1_final = jax.lax.stop_gradient(target_q1_final)
+                target_q2_final = jax.lax.stop_gradient(target_q2_final)
 
                 loss, info = loss_fn(
                     q1, 
                     q2,
                     target_q1, 
-                    target_q2, 
+                    target_q2,
+                    target_q1_final,
+                    target_q2_final,
                     q1_logits, 
                     q2_logits,
                     input_ids[:, 1:], 

@@ -32,6 +32,8 @@ def cql_loss(
         q2: jax.Array,  # [batch, time-1] output is masked; shift x[:-1]
         target_q1: jax.Array,  # [batch, time-1] output is masked; shift x[:-1]
         target_q2: jax.Array,  # [batch, time-1] output is masked; shift x[:-1]
+        target_q1_final: jax.Array,  # [batch]
+        target_q2_final: jax.Array,  # [batch]
         q1_logits: jax.Array,  # [batch, time-1, vocab] output is masked; shift x[:-1]
         q2_logits: jax.Array,  # [batch, time-1, vocab] output is masked; shift x[:-1]
         token_ids: jax.Array,  # [batch, time-1] output is masked; shift x[1:]
@@ -47,9 +49,9 @@ def cql_loss(
     n = mask.sum()
 
     q1sa_flat, q2sa_flat = q1.reshape(-1), q2.reshape(-1)
-    # target_q1nssa_flat = jnp.pad(target_q1, ((0, 0), (0, 1)), 'constant', constant_values=0).reshape(-1)
-    # target_q2nssa_flat = jnp.pad(target_q2, ((0, 0), (0, 1)), 'constant', constant_values=0).reshape(-1)
-    target_q1nssa_flat, target_q2nssa_flat = target_q1.reshape(-1), target_q2.reshape(-1)
+    target_q1nssa_flat = jnp.concatenate((target_q1, target_q1_final[..., None]), axis=1).reshape(-1)
+    target_q2nssa_flat = jnp.concatenate((target_q2, target_q2_final[..., None]), axis=1).reshape(-1)
+
     q_query_indicators = get_query_indicators(should_take_action.reshape(-1))
 
     is_next_action = should_take_action.copy()
@@ -63,18 +65,12 @@ def cql_loss(
     qns_query_indicators = get_query_indicators(is_next_action.reshape(-1))
     # should be the same number of qns as qv, so we can clip the extra padding to match shape
     qns_query_indicators = qns_query_indicators[:q_query_indicators.shape[0], :]
-    batch_size = q1.shape[0]
-    first_dim = qns_query_indicators.shape[0]
-    second_dim = qns_query_indicators.shape[1]
-    tmp_shape = (first_dim, batch_size, second_dim // batch_size)
-    qns_query_indicators_crop = qns_query_indicators.reshape(tmp_shape)[:, :, :-1].reshape(
-        (first_dim, second_dim - batch_size))
 
     # extract selected values
     q1sa_selected = (q_query_indicators * q1sa_flat).sum(axis=1)
     q2sa_selected = (q_query_indicators * q2sa_flat).sum(axis=1)
-    target_q1nssa_selected = (qns_query_indicators_crop * target_q1nssa_flat).sum(axis=1)
-    target_q2nssa_selected = (qns_query_indicators_crop * target_q2nssa_flat).sum(axis=1)
+    target_q1nssa_selected = (qns_query_indicators * target_q1nssa_flat).sum(axis=1)
+    target_q2nssa_selected = (qns_query_indicators * target_q2nssa_flat).sum(axis=1)
     rs_selected = (q_query_indicators * rewards.reshape(-1)).sum(axis=1)
 
     # get masks for selected values
