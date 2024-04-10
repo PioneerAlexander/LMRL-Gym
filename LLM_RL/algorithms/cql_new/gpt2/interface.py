@@ -260,8 +260,8 @@ class GPT2CQLTrain(CQLTrain):
                 q1_logits = q1_head_output[:, :-1, :].astype(jnp.float32)
                 q2_logits = q2_head_output[:, :-1, :].astype(jnp.float32)
 
-                target_q1_full = target_q1_head_output.squeeze(2)
-                target_q2_full = target_q2_head_output.squeeze(2)
+                target_q1_full = target_q1_head_output
+                target_q2_full = target_q2_head_output
                 # get policy logits
                 base_logits = base_model_output.logits.astype(jnp.float32)
                 # get next token values
@@ -277,13 +277,13 @@ class GPT2CQLTrain(CQLTrain):
                         final_next_token_h,
                         train=train, 
                         rngs={'dropout': new_key} if prng_key is not None else None, 
-                    ).squeeze(1)
+                    )[:, -1]
                     next_token_target_q2_head_output = q_head_model.apply(
                         {'params': q2_head_params},
                         final_next_token_h,
                         train=train,
                         rngs={'dropout': new_key} if prng_key is not None else None,
-                    ).squeeze(1)
+                    )[:, -1]
                     target_q1_final = next_token_target_q1_head_output * (1 - next_dones.astype(jnp.float32))
                     target_q2_final = next_token_target_q2_head_output * (1 - next_dones.astype(jnp.float32))
                 else:
