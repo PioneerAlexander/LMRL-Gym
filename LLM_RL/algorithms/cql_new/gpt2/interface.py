@@ -266,7 +266,7 @@ class GPT2CQLTrain(CQLTrain):
                 base_logits = base_model_output.logits.astype(jnp.float32)
                 # get next token values
                 if next_token_ids is not None:
-                   
+
                     last_next_token_idxs = (next_tokens_attention_mask.shape[1]-1)-jnp.argmax(jnp.flip(next_tokens_attention_mask, axis=1).astype(jnp.int32), axis=1)
 
                     final_next_token_h = next_token_target_base_model_output.hidden_states[-1][jnp.arange(0, input_ids.shape[0], dtype=jnp.int32), last_next_token_idxs, :]
@@ -285,12 +285,12 @@ class GPT2CQLTrain(CQLTrain):
                         train=train,
                         rngs={'dropout': new_key} if prng_key is not None else None,
                     )
-                  
+                    
                     next_token_target_q1_head_output = jnp.take_along_axis(next_token_target_q1_head_output, next_token_ids.astype(jnp.int32), axis=1)
                     next_token_target_q2_head_output = jnp.take_along_axis(next_token_target_q2_head_output, next_token_ids.astype(jnp.int32), axis=1)
 
-                    target_q1_final = next_token_target_q1_head_output[:, -1] * (1 - next_dones.astype(jnp.float32))
-                    target_q2_final = next_token_target_q2_head_output[:, -1] * (1 - next_dones.astype(jnp.float32))
+                    target_q1_final = next_token_target_q1_head_output[:, last_next_token_idxs] * (1 - next_dones.astype(jnp.float32))
+                    target_q2_final = next_token_target_q2_head_output[:, last_next_token_idxs] * (1 - next_dones.astype(jnp.float32))
                 else:
                     last_action_idxs = (should_take_action.shape[1]-1)-jnp.argmax(jnp.flip(should_take_action, axis=1).astype(jnp.int32), axis=1)+1
                     last_token_idxs = (attention_mask.shape[1]-1)-jnp.argmax(jnp.flip(attention_mask, axis=1).astype(jnp.int32), axis=1)
