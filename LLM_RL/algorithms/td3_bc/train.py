@@ -17,8 +17,8 @@ from JaxSeq.shard_model import get_sharding_from_model
 from flax.training.train_state import TrainState
 from transformers.modeling_flax_utils import FlaxPreTrainedModel
 import pickle as pkl
-from LLM_RL.algorithms.iql.base_interface import IQLTrain, IQLInference
-from LLM_RL.algorithms.iql.gpt2.interface import GPT2IQLInference
+from LLM_RL.algorithms.td3_bc.base_interface import IQLTrain, IQLInference
+from LLM_RL.algorithms.td3_bc.gpt2.interface import GPT2IQLInference
 from LLM_RL.algorithms.value_rl_base.base_interface import ValueRLInference
 import jax.numpy as jnp
 import flax.linen as nn

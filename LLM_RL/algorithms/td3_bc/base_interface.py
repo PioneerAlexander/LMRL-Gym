@@ -26,16 +26,16 @@ def get_query_indicators(
     query_indicators = jax.nn.one_hot(idxs, num_classes=flat_mask.shape[0]+1, dtype=jnp.float32)[:, :-1]
     return query_indicators
 
-def cql_loss(
+def td3_bc_loss(
         q1: jax.Array,  # [batch, time-1] output is masked; shift x[:-1]
         q2: jax.Array,  # [batch, time-1] output is masked; shift x[:-1]
         target_q1: jax.Array,  # [batch, time-1] output is masked; shift x[:-1]
         target_q2: jax.Array,  # [batch, time-1] output is masked; shift x[:-1]
         target_q1_final: jax.Array,  # [batch]
         target_q2_final: jax.Array,  # [batch]
-        base_logits: jax.Array,
         q1_logits: jax.Array,  # [batch, time-1, vocab] output is masked; shift x[:-1]
         q2_logits: jax.Array,  # [batch, time-1, vocab] output is masked; shift x[:-1]
+        base_logits: jax.Array,
         token_ids: jax.Array,  # [batch, time-1] output is masked; shift x[1:]
         attention_mask: jax.Array,  # [batch, time-1] output is masked; shift x[1:]
         should_take_action: jax.Array,  # [batch, time-1] output is masked; shift x[1:]
@@ -85,12 +85,6 @@ def cql_loss(
                              jax.lax.stop_gradient(rs_selected + gamma * target_qns_selected)) * a_mask).sum() / n
     q2_loss = (optax.l2_loss(q2sa_selected,
                              jax.lax.stop_gradient(rs_selected + gamma * target_qns_selected)) * a_mask).sum() / n
-    # compute policy loss
-
-    token_losses = optax.softmax_cross_entropy_with_integer_labels(base_logits[:, :-1, :],
-                                                                   token_ids[:, 1:]) * attention_mask[:, 1:]
-    # token_losses = should_take_action[:, 1:] * token_losses + (1 - should_take_action[:, 1:]) * token_losses
-    bc_loss = token_losses.sum() / attention_mask[:, 1:].sum()
 
     # compute cql loss on both q heads
     q1_cql_loss = optax.softmax_cross_entropy_with_integer_labels(q1_logits, token_ids)
@@ -99,7 +93,7 @@ def cql_loss(
     q2_cql_loss = optax.softmax_cross_entropy_with_integer_labels(q2_logits, token_ids)
     q2_cql_loss = (mask * q2_cql_loss).sum() / n
 
-    loss = q1_loss + q2_loss + cql_weight * (q1_cql_loss + q2_cql_loss) + bc_loss
+    loss = q1_loss + q2_loss + cql_weight * (q1_cql_loss + q2_cql_loss)
 
     logs = dict(
         losses=dict(

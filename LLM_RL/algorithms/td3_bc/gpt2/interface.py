@@ -267,7 +267,11 @@ class GPT2IQLTrain(IQLTrain):
                 target_q2_full = target_q2_head_output
                 # get policy logits
                 base_logits = base_model_output.logits.astype(jnp.float32)
+                logprobs = jax.nn.log_softmax(base_logits, axis=-1)
+                jax.debug.print("{x}", x=logprobs.shape)
+                jax.debug.print("{x}", x=logprobs)
                 # get next token values
+
                 if next_token_ids is not None:
 
                     last_next_token_idxs = (next_tokens_attention_mask.shape[1] - 1) - jnp.argmax(
