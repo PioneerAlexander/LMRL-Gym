@@ -364,7 +364,7 @@ def main(
         v_head_model=v_head, 
         tokenizer=tokenizer,  
         beta=beta,
-        is_cql=False,
+        is_cql=True,
         dp_shard_logits=True, 
     ), 
         GPT2ValueRLInference.load_inference(
@@ -379,7 +379,7 @@ def main(
         v_head_model=None,
         tokenizer=tokenizer,
         beta=beta,
-        is_cql=False,
+        is_cql=True,
         dp_shard_logits=True,
     ),
         loss_fn,
