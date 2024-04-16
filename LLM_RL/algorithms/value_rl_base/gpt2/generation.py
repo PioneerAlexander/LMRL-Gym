@@ -119,10 +119,8 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
         else:
             q_logits = q1_logits
 
-        if pi_beta_logits is not None:
-            logits = pi_beta_logits + self.beta * q_logits
-        else:
-            logits = self.beta * q_logits
+    
+        logits = self.beta * q_logits
 
         return GPT2ValueRLGenerationOutput(logits=logits, past_key_values=(pi_beta_kvs, base_kvs,))
     
