@@ -254,9 +254,10 @@ class GPT2CQLTrain(CQLTrain):
                 q2 = jnp.take_along_axis(q2_head_output[:, :-1], input_ids[:, 1:][..., None], axis=2).squeeze(2)
                 v = v_head_output[:, :-1].squeeze(2)
                 v_full = v_head_output.squeeze(2)
-                target_q1 = jnp.take_along_axis(target_q1_head_output[:, :-1], input_ids[:, 1:][..., None], axis=2).squeeze(2)
-                target_q2 = jnp.take_along_axis(target_q2_head_output[:, :-1], input_ids[:, 1:][..., None], axis=2).squeeze(2)
-
+                # target_q1 = jnp.take_along_axis(target_q1_head_output[:, :-1], input_ids[:, 1:][..., None], axis=2).squeeze(2)
+                # target_q2 = jnp.take_along_axis(target_q2_head_output[:, :-1], input_ids[:, 1:][..., None], axis=2).squeeze(2)
+                target_q1 = jnp.max(target_q1_head_output[:, :-1], axis=2)
+                target_q2 = jnp.max(target_q2_head_output[:, :-1], axis=2)
                 q1_logits = q1_head_output[:, :-1, :].astype(jnp.float32)
                 q2_logits = q2_head_output[:, :-1, :].astype(jnp.float32)
 
@@ -288,7 +289,7 @@ class GPT2CQLTrain(CQLTrain):
 
                     next_token_target_q1_head_output = jnp.take_along_axis(next_token_target_q1_head_output, next_token_ids.astype(jnp.int32), axis=1)
                     next_token_target_q2_head_output = jnp.take_along_axis(next_token_target_q2_head_output, next_token_ids.astype(jnp.int32), axis=1)
-                    
+                                        
                     target_q1_final = next_token_target_q1_head_output[jnp.arange(0, input_ids.shape[0], dtype=jnp.int32), last_next_token_idxs] * (1 - next_dones.astype(jnp.float32))
                     target_q2_final = next_token_target_q2_head_output[jnp.arange(0, input_ids.shape[0], dtype=jnp.int32), last_next_token_idxs] * (1 - next_dones.astype(jnp.float32))
                 else:
