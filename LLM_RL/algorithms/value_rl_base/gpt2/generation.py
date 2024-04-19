@@ -118,9 +118,11 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
             q_logits = jnp.minimum(q1_logits, q2_logits)
         else:
             q_logits = q1_logits
-
-    
-        logits = self.beta * q_logits
+        
+        if pi_beta_logits is None:
+            logits = self.beta * q_logits
+        else:
+            logits = self.beta * q_logits + pi_beta_logits
 
         return GPT2ValueRLGenerationOutput(logits=logits, past_key_values=(pi_beta_kvs, base_kvs,))
     
