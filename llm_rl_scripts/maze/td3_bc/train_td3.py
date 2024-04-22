@@ -66,6 +66,7 @@ def main(
     cql_weight: float=0.5,
     gamma: float=0.99,
     beta: float=16.0,
+    bc_weight: float=1.0,
 
     train_bsize: int=32, 
     grad_accum_steps: int=1, 
@@ -297,7 +298,7 @@ def main(
         with open(os.path.join(convert_path(model_load_path), 'loop_state.pkl'), 'rb') as f:
             loop_state = pkl.load(f)
     
-    loss_fn = partial(td3_bc_loss, gamma=gamma, cql_weight=cql_weight)
+    loss_fn = partial(td3_bc_loss, gamma=gamma, cql_weight=cql_weight, bc_weight=bc_weight)
 
     train = GPT2TD3_BCTrain.load_train(
         base_train_state=base_train_state, 

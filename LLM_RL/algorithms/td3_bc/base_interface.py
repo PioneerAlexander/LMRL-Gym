@@ -43,6 +43,7 @@ def td3_bc_loss(
         *,
         gamma: Union[float, jax.Array],
         cql_weight: Union[float, jax.Array],
+        bc_weight: Union[float, jax.Array],
 ) -> Tuple[jnp.ndarray, Any]:
     # should be an action in the batch
     mask = should_take_action.astype(jnp.float32) * attention_mask
@@ -96,7 +97,7 @@ def td3_bc_loss(
     cross_entropy = optax.softmax_cross_entropy_with_integer_labels(base_logits[:, :-1], token_ids).reshape(-1)
     
     bc_loss = ((-q1sa_selected + cross_entropy) * a_mask).sum() / n
-    loss = q1_loss + q2_loss + cql_weight * (q1_cql_loss + q2_cql_loss) + bc_loss
+    loss = q1_loss + q2_loss + cql_weight * (q1_cql_loss + q2_cql_loss) + bc_weight * bc_loss
 
     logs = dict(
         losses=dict(
@@ -105,6 +106,7 @@ def td3_bc_loss(
             q2_loss=q2_loss,
             q1_cql_loss=q1_cql_loss,
             q2_cql_loss=q2_cql_loss,
+            bc_loss=bc_loss,
         ),
         q1=get_tensor_stats(q1sa_selected, mask=a_mask, n=n),
         q2=get_tensor_stats(q2sa_selected, mask=a_mask, n=n),
