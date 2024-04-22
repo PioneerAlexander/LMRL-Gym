@@ -15,7 +15,7 @@ from transformers.generation import GenerationConfig
 from jaxtyping import PyTree
 import re
 from LLM_RL.environment import Text, text_env_eval, TextTrajectory, TextTrajectoryChain, TokenTrajectoryChain, text_history_to_str
-from LLM_RL.algorithms.td3_bc.gpt2.interface import GPT2IQLTrain, GPT2IQLInference
+from LLM_RL.algorithms.td3_bc.gpt2.interface import GPT2TD3_BCTrain, GPT2TD3_BCInference
 from LLM_RL.algorithms.value_rl_base.gpt2.interface import GPT2ValuePolicy, GPT2ValueRLInference
 from LLM_RL.heads.mlp_head import load_train_state_from_config as load_head_train_state_from_config
 from LLM_RL.heads.mlp_head import MLPHeadConfig
@@ -25,7 +25,7 @@ import numpy as np
 from JaxSeq.logs import log, pull_logs
 import json
 from LLM_RL.algorithms.td3_bc.train import train_loop
-from LLM_RL.algorithms.td3_bc.data import IQLData, IQLDataset
+from LLM_RL.algorithms.td3_bc.data import TD3_BCData, TD3_BCDataset
 from JaxSeq.utils import multihost_device_get
 from transformers import GPT2TokenizerFast
 from IPython import embed
@@ -131,7 +131,7 @@ def main(
                     curr_chain = TextTrajectoryChain(text_trajectory=prev_trajectory, next=curr_chain)
                 token_trajectory_chain = TokenTrajectoryChain.from_text_trajectory_chain(curr_chain, tokenizer)
                 while token_trajectory_chain.next is not None:
-                    yield IQLData.from_token_trajectory_chain(token_trajectory_chain)
+                    yield TD3_BCData.from_token_trajectory_chain(token_trajectory_chain)
                     token_trajectory_chain = token_trajectory_chain.next
 
     iql_data_lst = list(iql_data_generator(train_data_path))
@@ -140,7 +140,7 @@ def main(
     manual_seed(seed)
     random.shuffle(iql_data_lst)
     
-    dataset = IQLDataset.from_iql_data_list(iql_data_lst, tokenizer, 
+    dataset = TD3_BCDataset.from_iql_data_list(iql_data_lst, tokenizer, 
                                               BlockingStrategy(
                                                 padding=Padding.RIGHT,
                                                 truncation=Truncation.RIGHT,
