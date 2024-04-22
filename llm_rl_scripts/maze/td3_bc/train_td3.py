@@ -299,7 +299,7 @@ def main(
     
     loss_fn = partial(td3_bc_loss, gamma=gamma, cql_weight=cql_weight)
 
-    train = GPT2IQLTrain.load_train(
+    train = GPT2TD3_BCTrain.load_train(
         base_train_state=base_train_state, 
         target_base_params=target_base_params, 
         q1_head_train_state=q1_head_train_state, 
@@ -350,7 +350,7 @@ def main(
     # )
     
     # inference = GPT2ILQLInference.load_inference(value_rl_inference, target_value_rl_inference, loss_fn)
-    inference = GPT2IQLInference.load_inference(
+    inference = GPT2TD3_BCInference.load_inference(
         GPT2ValueRLInference.load_inference(
         pi_beta_params=None,
         base_params=base_train_state.params, 
@@ -390,7 +390,7 @@ def main(
         embed()
 
     # policy_prng = jax.random.PRNGKey(seed)
-    def evaluate(inference: GPT2IQLInference, epoch: int):
+    def evaluate(inference: GPT2TD3_BCInference, epoch: int):
         nonlocal policy_prng
         policy_prng, new_key = jax.random.split(policy_prng)
         # embed()
