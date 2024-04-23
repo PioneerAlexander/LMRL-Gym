@@ -17,8 +17,8 @@ from JaxSeq.shard_model import get_sharding_from_model
 from flax.training.train_state import TrainState
 from transformers.modeling_flax_utils import FlaxPreTrainedModel
 import pickle as pkl
-from LLM_RL.algorithms.td3_bc.base_interface import IQLTrain, IQLInference
-from LLM_RL.algorithms.td3_bc.gpt2.interface import GPT2IQLInference
+from LLM_RL.algorithms.td3_bc.base_interface import TD3_BCTrain, TD3_BCInference
+from LLM_RL.algorithms.td3_bc.gpt2.interface import GPT2TD3_BCInference
 from LLM_RL.algorithms.value_rl_base.base_interface import ValueRLInference
 import jax.numpy as jnp
 import flax.linen as nn
@@ -177,7 +177,7 @@ def dump_state(
 
 
 def eval_loss(
-    inference: IQLInference, 
+    inference: TD3_BCInference, 
     dataset: Union[Seq2SeqDataset, Seq2SeqIterableDataset], 
     prng_key: Optional[KeyArray], 
     bsize: int, 
@@ -203,8 +203,8 @@ def eval_loss(
     return eval_logs
 
 def train_loop(
-    trainer: IQLTrain, 
-    inference: Union[ValueRLInference, IQLInference], 
+    trainer: TD3_BCTrain, 
+    inference: Union[ValueRLInference, TD3_BCInference], 
     evaluator: Optional[Callable[[Inference], Tuple[float, Dict[str, Any]]]], 
     dataset: Union[Seq2SeqDataset, Seq2SeqIterableDataset], 
     prng_key: KeyArray, 
@@ -304,7 +304,7 @@ def train_loop(
                 q2_head_params=trainer.q2_head_train_state.params, 
                 v_head_params=trainer.v_head_train_state.params, 
             )
-        elif isinstance(inference,  GPT2IQLInference):
+        elif isinstance(inference,  GPT2TD3_BCInference):
             new_value_inference = inference.value_inference.replace(
                 base_params=trainer.base_train_state.params, 
                 q1_head_params=trainer.q1_head_train_state.params, 

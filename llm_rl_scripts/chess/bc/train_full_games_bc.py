@@ -1,5 +1,9 @@
+import random
 from typing import Optional
+
+import numpy as np
 import tyro
+import wandb
 from JaxSeq.utils import convert_path, load_mesh, setup_experiment_save, MapIterable, BlockingStrategy, Padding, Truncation
 import jax
 import jax.numpy as jnp
@@ -14,6 +18,7 @@ from JaxSeq.train import eval_loss, train_loop
 from jaxtyping import PyTree
 import re
 from JaxSeq.optimizers import GPT3Optimizer
+from torch import manual_seed
 from transformers.generation import GenerationConfig
 import json
 from transformers import AutoTokenizer
@@ -64,12 +69,12 @@ def main(
     max_output_length: int=8, 
 
     log_every: int=100, 
-    eval_every_steps: Optional[int]=100000, 
+    eval_every_steps: Optional[int]=10000,
     eval_every_epochs: Optional[int]=None, 
     eval_at_beginning: bool=True, 
     eval_at_end: bool=True, 
     
-    save_every_steps: Optional[int]=None, 
+    save_every_steps: Optional[int]=10000,
     save_every_epochs: Optional[int]=None, 
     save_at_beginning: bool=False, 
     save_at_end: bool=False, 
@@ -87,7 +92,8 @@ def main(
 
     should_restore_loop_state: bool=False, 
     traj_max_length:int=40,
-    filtered:bool=True, 
+    filtered:bool=True,
+    seed:int=1,
 ):
     input_args = locals()
     print(input_args)
@@ -129,7 +135,9 @@ def main(
             max_length=max_output_length
         ), 
     )
-    
+    random.seed(seed)
+    np.random.seed(seed)
+    manual_seed(seed)
 
 
     def optim_getter(params: PyTree):
@@ -157,8 +165,9 @@ def main(
         if grad_accum_steps is not None:
             return optax.MultiSteps(optim, every_k_schedule=grad_accum_steps)
         return optim
+    key = jax.random.PRNGKey(seed)
+    model_prng_key, train_prng, policy_prng_key, eval_loss_prng_key = jax.random.split(key, num=4)
 
-    model_prng_key = jax.random.PRNGKey(2)
     train_state, model = load_train_state(
         model_load_mode=model_load_mode, 
         model_load_path=convert_path(model_load_path) if model_load_mode != ModelLoadMode.HF else model_load_path, 
@@ -191,15 +200,8 @@ def main(
         model=model, 
         tokenizer=tokenizer, 
     )
-
-    save_dir, exp_name = setup_experiment_save(
-        exp_name=exp_name, 
-        outputs_path=convert_path(outputs_path), 
-        input_args=input_args, 
-        script__file__=__file__, 
-        is_main_process=is_main_process, 
-    )
-    
+    save_dir = outputs_path + "/" + str(seed)
+    exp_name = str(seed)
     # maze_name = "double_t_maze"
     # describe_function = "describe_observation_only_walls"
     # reward_function = "standard_reward"
@@ -213,14 +215,14 @@ def main(
         data_results = eval_loss(
             inference=inference, 
             dataset=train_data, # since iterable dataset, will be different data for eval
-            prng_key=jax.random.PRNGKey(1), 
+            prng_key=eval_loss_prng_key,
             bsize=4, 
             eval_batches=64, 
         )
         
         policy = GPT2PPOPolicy(
             inference=inference, 
-            prng_key=jax.random.PRNGKey(1), 
+            prng_key=policy_prng_key,
             generation_config=GenerationConfig(
                 do_sample=True, 
                 num_beams=1, 
@@ -240,17 +242,17 @@ def main(
         )
         
         env = FenChessHistoryEnv()
-        raw_results, summary_results = text_env_eval(
+        raw_results, summary_results, mean_reward = text_env_eval(
             env=env,
             policy=policy,
             n_rollouts=5,
             bsize=8,
         )
         summary_results = pull_logs(summary_results)
-        
+        mean = mean_reward["mean"].mean()
+        wandb.log({"score": mean})
         return data_results['loss'], {'data': data_results, 'interaction_env': summary_results}
-    
-    train_prng = jax.random.PRNGKey(1)
+
     save_dtype = jnp.bfloat16 if save_bf16 else jnp.float32
     trainer, inference = train_loop(
         trainer=trainer, 
