@@ -107,6 +107,8 @@ def td3_bc_loss(
             q1_cql_loss=q1_cql_loss,
             q2_cql_loss=q2_cql_loss,
             bc_loss=bc_loss,
+            q1=get_tensor_stats(q1sa_selected, mask=a_mask, n=n),
+            cross_entropy=get_tensor_stats(cross_entropy, mask=a_mask, n=n),
         ),
         q1=get_tensor_stats(q1sa_selected, mask=a_mask, n=n),
         q2=get_tensor_stats(q2sa_selected, mask=a_mask, n=n),
