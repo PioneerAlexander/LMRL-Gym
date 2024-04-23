@@ -54,7 +54,7 @@ def main(
     model_mesh_shape: int=-1, 
 
     use_wandb: bool=True, 
-    wandb_project: Optional[str]="iql_maze", 
+    wandb_project: Optional[str]="td3+bc_maze",
 
     n_rounds: int=1, 
     epochs: int=1, 
@@ -63,7 +63,7 @@ def main(
     lr: float=1e-4, 
     weight_decay: float=0.0, 
     tau: float=0.99,
-    cql_weight: float=0.5,
+    cql_weight: float=0.0,
     gamma: float=0.99,
     beta: float=16.0,
     bc_weight: float=1.0,
@@ -107,7 +107,7 @@ def main(
 ):
     input_args = locals()
     print(input_args)
-    # model_load_path = f"{model_load_path}/{seed}/last"
+    model_load_path = f"{model_load_path}/{seed}/last"
     tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
     tokenizer.add_special_tokens({'pad_token': '<|pad|>'})
 
@@ -507,15 +507,7 @@ def main(
         accuracy = num_correct/(len(positions)-1)*100
         print("Accuracy: ", accuracy)
         wandb.log({"accuracy": accuracy})
-        # with mesh: 
-        #     raw_results, summary_results, mean_reward = text_env_eval(
-        #         env=env,
-        #         policy=sample_policy,
-        #         n_rollouts=32,
-        #         bsize=16,
-        #         env_options={"init_position": start_position},
-        #     )
-        #     wandb.log(mean_reward)
+
         mean_rewards = np.empty((25,))
         with mesh:
           for idx, position in enumerate(possible_positions):
