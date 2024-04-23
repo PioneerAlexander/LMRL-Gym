@@ -7,7 +7,7 @@ import jax
 from transformers.tokenization_utils import PreTrainedTokenizerBase
 from LLM_RL.environment import TokenTrajectoryChain
 
-class IQLData(NamedTuple):
+class TD3_BCData(NamedTuple):
     input_ids: np.ndarray # [t]
     should_take_action: np.ndarray # [t-1]
     rewards: np.ndarray # [t-1]
@@ -17,7 +17,7 @@ class IQLData(NamedTuple):
 
     @staticmethod
     def block(
-        data: List[IQLData], 
+        data: List[TD3_BCData], 
         blocking_strategy: BlockingStrategy, 
         tokenizer: PreTrainedTokenizerBase, 
     ) -> Dict[str, np.ndarray]:
@@ -78,7 +78,7 @@ class IQLData(NamedTuple):
             next_done=next_done, 
         )
 
-class IQLDataset(Dataset):
+class TD3_BCDataset(Dataset):
     def __init__(
         self, 
         input_ids: np.ndarray, # [b, t]
@@ -122,16 +122,16 @@ class IQLDataset(Dataset):
     @classmethod
     def from_iql_data_list(
         cls, 
-        iql_data_list: List[IQLData], 
+        iql_data_list: List[TD3_BCData], 
         tokenizer: PreTrainedTokenizerBase, 
         blocking_strategy: BlockingStrategy, 
-    ) -> IQLDataset:
+    ) -> TD3_BCDataset:
         
-        data = IQLData.block(iql_data_list, blocking_strategy, tokenizer)
+        data = TD3_BCData.block(iql_data_list, blocking_strategy, tokenizer)
 
         return cls(**data)
 
-class _IQLIteratorDataset:
+class _TD3_BCIteratorDataset:
     def __init__(self, iql_data: Iterator[Dict[str, np.ndarray]]):
         self.iql_data = iql_data
 
@@ -146,25 +146,25 @@ class _IQLIteratorDataset:
             'next_dones': jnp.asarray(item['next_dones'], dtype=jnp.float32) if item['next_dones'] is not None else None, 
         }
 
-class IQLIterableDataset(IterableDataset):
+class TD3_BCIterableDataset(IterableDataset):
     def __init__(self, iql_data: Iterable[Dict[str, np.ndarray]]):
         self.iql_data = iql_data
     
     def __iter__(self):
-        return _IQLIteratorDataset(iter(self.iql_data))
+        return _TD3_BCIteratorDataset(iter(self.iql_data))
     
     @classmethod
     def from_iql_data_iterable(
         cls, 
-        iql_data: Iterable[IQLData], 
+        iql_data: Iterable[TD3_BCData], 
         tokenizer: PreTrainedTokenizerBase, 
         blocking_strategy: BlockingStrategy, 
-    ) -> IQLIterableDataset:
+    ) -> TD3_BCIterableDataset:
         
         class _TokensIterable(Iterable):
             def _tokens_generator(self):
                 for item in iql_data:
-                    yield jax.tree_util.tree_map(lambda x: x[0], IQLData.block([item], blocking_strategy, tokenizer))
+                    yield jax.tree_util.tree_map(lambda x: x[0], TD3_BCData.block([item], blocking_strategy, tokenizer))
 
             def __iter__(self):
                 return self._tokens_generator()

@@ -43,6 +43,7 @@ def td3_bc_loss(
         *,
         gamma: Union[float, jax.Array],
         cql_weight: Union[float, jax.Array],
+        bc_weight: Union[float, jax.Array],
 ) -> Tuple[jnp.ndarray, Any]:
     # should be an action in the batch
     mask = should_take_action.astype(jnp.float32) * attention_mask
@@ -93,7 +94,10 @@ def td3_bc_loss(
     q2_cql_loss = optax.softmax_cross_entropy_with_integer_labels(q2_logits, token_ids)
     q2_cql_loss = (mask * q2_cql_loss).sum() / n
 
-    loss = q1_loss + q2_loss + cql_weight * (q1_cql_loss + q2_cql_loss)
+    cross_entropy = optax.softmax_cross_entropy_with_integer_labels(base_logits[:, :-1], token_ids).reshape(-1)
+    
+    bc_loss = ((-q1sa_selected + cross_entropy) * a_mask).sum() / n
+    loss = q1_loss + q2_loss + cql_weight * (q1_cql_loss + q2_cql_loss) + bc_weight * bc_loss
 
     logs = dict(
         losses=dict(
@@ -102,6 +106,7 @@ def td3_bc_loss(
             q2_loss=q2_loss,
             q1_cql_loss=q1_cql_loss,
             q2_cql_loss=q2_cql_loss,
+            bc_loss=bc_loss,
         ),
         q1=get_tensor_stats(q1sa_selected, mask=a_mask, n=n),
         q2=get_tensor_stats(q2sa_selected, mask=a_mask, n=n),
@@ -113,7 +118,7 @@ def td3_bc_loss(
 
     return loss, logs
 
-class IQLTrain(struct.PyTreeNode):
+class TD3_BCTrain(struct.PyTreeNode):
     base_train_state: TrainState
     target_base_params: Optional[PyTree]
     q1_head_train_state: TrainState
@@ -167,7 +172,7 @@ class IQLTrain(struct.PyTreeNode):
         next_tokens_attention_mask: Optional[jax.Array]=None, 
         next_tokens_position_ids: Optional[jax.Array]=None, 
         train: bool=True, 
-    ) -> Tuple[IQLTrain, jax.Array, PyTree]:
+    ) -> Tuple[TD3_BCTrain, jax.Array, PyTree]:
         
         # handle attention mask and position ids shifting
         attention_mask, position_ids = initialize_attn_mask_pos_ids(
@@ -227,11 +232,11 @@ class IQLTrain(struct.PyTreeNode):
             q2_target_head_params=q2_target_head_params, 
         ), loss, logs
 
-class IQLForwardOutput(NamedTuple):
+class TD3_BCForwardOutput(NamedTuple):
     output: ValueRLForwardOutput
     target_output: ValueRLForwardOutput
 
-class IQLInference(struct.PyTreeNode):
+class TD3_BCInference(struct.PyTreeNode):
     value_inference: ValueRLInference
     target_value_inference: ValueRLInference
     _eval_loss: Callable = struct.field(pytree_node=False)
@@ -313,13 +318,13 @@ class IQLInference(struct.PyTreeNode):
         output_attentions: Optional[bool]=None, 
         train: bool=False, 
         prng_key: Optional[jax.random.PRNGKeyArray]=None, 
-    ) -> IQLForwardOutput:
+    ) -> TD3_BCForwardOutput:
         input_ids_cp = input_ids.copy()
         attention_mask_cp = attention_mask.copy() if attention_mask is not None else None
         position_ids_cp = position_ids.copy() if position_ids is not None else None
         output_attentions_cp = output_attentions.copy() if output_attentions is not None else None
         prng_key_cp = prng_key.copy() if prng_key is not None else None
-        return IQLForwardOutput(
+        return TD3_BCForwardOutput(
             output=self.value_inference.forward(
                 input_ids, 
                 attention_mask=attention_mask, 
@@ -347,8 +352,8 @@ class IQLInference(struct.PyTreeNode):
         train: bool=False, 
         prng_key: Optional[jax.random.PRNGKeyArray]=None, 
         input_token_process: Optional[Callable[[List[int]], List[int]]]=None, 
-    ) -> IQLForwardOutput:
-        return IQLForwardOutput(
+    ) -> TD3_BCForwardOutput:
+        return TD3_BCForwardOutput(
             output=self.value_inference.forward_from_str(
                 input_strs, 
                 blocking_strategy=blocking_strategy, 

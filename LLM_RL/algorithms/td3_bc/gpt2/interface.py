@@ -1,6 +1,5 @@
 from typing import Optional, Callable, Tuple
 from jax.experimental.pjit import pjit
-from LLM_RL.algorithms.iql.base_interface import IQLTrain, IQLInference
 from flax.training.train_state import TrainState
 from jaxtyping import PyTree
 from transformers.modeling_flax_utils import FlaxPreTrainedModel
@@ -13,9 +12,11 @@ from jax.sharding import NamedSharding
 from jax.sharding import PartitionSpec as PS
 import jax.numpy as jnp
 import optax
+
+from LLM_RL.algorithms.td3_bc.base_interface import TD3_BCTrain, TD3_BCInference
 from LLM_RL.algorithms.value_rl_base.gpt2.interface import GPT2ValueRLInference
 
-class GPT2IQLTrain(IQLTrain):
+class GPT2TD3_BCTrain(TD3_BCTrain):
     @classmethod
     def load_train(
         cls, 
@@ -189,8 +190,10 @@ class GPT2IQLTrain(IQLTrain):
                     else:
                         next_token_target_base_model_output = next_token_base_model_output
 
-                # get values
+                base_logits = base_model_output.logits.astype(jnp.float32)
 
+                # get values
+                
                 new_key = None
                 if prng_key is not None:
                     prng_key, new_key = jax.random.split(prng_key)
@@ -210,7 +213,6 @@ class GPT2IQLTrain(IQLTrain):
                     train=train,
                     rngs={'dropout': new_key} if prng_key is not None else None,
                 )
-
                 new_key = None
                 if prng_key is not None:
                     prng_key, new_key = jax.random.split(prng_key)
@@ -251,25 +253,28 @@ class GPT2IQLTrain(IQLTrain):
                 target_q1_head_output = jax.lax.stop_gradient(target_q1_head_output)
                 target_q2_head_output = jax.lax.stop_gradient(target_q2_head_output)
 
-                q1 = jnp.take_along_axis(q1_head_output[:, :-1], input_ids[:, 1:][..., None], axis=2).squeeze(2)
-                q2 = jnp.take_along_axis(q2_head_output[:, :-1], input_ids[:, 1:][..., None], axis=2).squeeze(2)
+                # q1 = jnp.take_along_axis(q1_head_output[:, :-1], input_ids[:, 1:][..., None], axis=2).squeeze(2)
+                # q2 = jnp.take_along_axis(q2_head_output[:, :-1], input_ids[:, 1:][..., None], axis=2).squeeze(2)
+                
+                action = jnp.argmax(base_logits[:, :-1], axis=2)
+
+                q1 = jnp.take_along_axis(q1_head_output[:, :-1], action[..., None], axis=2).squeeze(2)
+                q2 = jnp.take_along_axis(q2_head_output[:, :-1], action[..., None], axis=2).squeeze(2)
                 v = v_head_output[:, :-1].squeeze(2)
                 v_full = v_head_output.squeeze(2)
-                target_q1 = jnp.take_along_axis(target_q1_head_output[:, :-1], input_ids[:, 1:][..., None],
-                                                axis=2).squeeze(2)
-                target_q2 = jnp.take_along_axis(target_q2_head_output[:, :-1], input_ids[:, 1:][..., None],
-                                                axis=2).squeeze(2)
-
+                # target_q1 = jnp.take_along_axis(target_q1_head_output[:, :-1], input_ids[:, 1:][..., None],
+                #                                 axis=2).squeeze(2)
+                # target_q2 = jnp.take_along_axis(target_q2_head_output[:, :-1], input_ids[:, 1:][..., None],
+                #                                 axis=2).squeeze(2)
+                target_q1 = jnp.max(target_q1_head_output[:, :-1], axis=2)
+                target_q2 = jnp.max(target_q2_head_output[:, :-1], axis=2)
                 q1_logits = q1_head_output[:, :-1, :].astype(jnp.float32)
                 q2_logits = q2_head_output[:, :-1, :].astype(jnp.float32)
 
                 target_q1_full = target_q1_head_output
                 target_q2_full = target_q2_head_output
                 # get policy logits
-                base_logits = base_model_output.logits.astype(jnp.float32)
-                logprobs = jax.nn.log_softmax(base_logits, axis=-1)
-                jax.debug.print("{x}", x=logprobs.shape)
-                jax.debug.print("{x}", x=logprobs)
+
                 # get next token values
 
                 if next_token_ids is not None:
@@ -294,18 +299,8 @@ class GPT2IQLTrain(IQLTrain):
                         train=train,
                         rngs={'dropout': new_key} if prng_key is not None else None,
                     )
-
-                    next_token_target_q1_head_output = jnp.take_along_axis(next_token_target_q1_head_output,
-                                                                           next_token_ids.astype(jnp.int32), axis=1)
-                    next_token_target_q2_head_output = jnp.take_along_axis(next_token_target_q2_head_output,
-                                                                           next_token_ids.astype(jnp.int32), axis=1)
-
-                    target_q1_final = next_token_target_q1_head_output[
-                                          jnp.arange(0, input_ids.shape[0], dtype=jnp.int32), last_next_token_idxs] * (
-                                                  1 - next_dones.astype(jnp.float32))
-                    target_q2_final = next_token_target_q2_head_output[
-                                          jnp.arange(0, input_ids.shape[0], dtype=jnp.int32), last_next_token_idxs] * (
-                                                  1 - next_dones.astype(jnp.float32))
+                    target_q1_final = jnp.max(next_token_target_q1_head_output, axis=1) * (1 - next_dones.astype(jnp.float32))
+                    target_q2_final = jnp.max(next_token_target_q1_head_output, axis=1) * (1 - next_dones.astype(jnp.float32))
                 else:
                     last_action_idxs = (should_take_action.shape[1] - 1) - jnp.argmax(
                         jnp.flip(should_take_action, axis=1).astype(jnp.int32), axis=1) + 1
@@ -431,7 +426,7 @@ class GPT2IQLTrain(IQLTrain):
             _step=_step, 
         )
 
-class GPT2IQLInference(IQLInference):
+class GPT2TD3_BCInference(TD3_BCInference):
     @classmethod
     def load_inference(
         cls, 
