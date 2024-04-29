@@ -380,6 +380,7 @@ def main(
             beta=beta,
             dp_shard_logits=True,
         ),
+
         loss_fn,
     )
 
@@ -561,8 +562,8 @@ def main(
               )
               interactions_q[str(position)], results_q[str(position)], mean_reward_q = result_q
               mean_rewards_q[idx] = mean_reward_q["mean"]
-              interactions_reweight[str(position)], results_reweight[str(position)], mean_rewards_reweight = result_reweight
-              mean_rewards_reweight[idx] = mean_rewards_reweight["mean"]
+              interactions_reweight[str(position)], results_reweight[str(position)], mean_reward_reweight = result_reweight
+              mean_rewards_reweight[idx] = mean_reward_reweight["mean"]
           for k, v in flatten_dict(results_q[str(position)]).items():
               avg_dict_q[k] += v
           for k, v in flatten_dict(results_reweight[str(position)]).items():
