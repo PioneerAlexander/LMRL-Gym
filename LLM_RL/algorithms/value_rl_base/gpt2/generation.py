@@ -1,4 +1,3 @@
-from types import NotImplementedType
 from typing import Optional, Tuple, Union
 from dataclasses import dataclass
 from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
@@ -26,15 +25,13 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
         pi_beta: Optional[FlaxPreTrainedModel], 
         value_base: FlaxPreTrainedModel, 
         q_head: nn.Module, 
-        beta: Union[float, jnp.ndarray], 
-        is_cql: bool=False, 
+        beta: Union[float, jnp.ndarray],
     ):
         self.config = base_model_config
         self.pi_beta = pi_beta
         self.value_base = value_base
         self.q_head = q_head
         self.beta = beta
-        self.is_cql=is_cql
     
     def __call__(
         self,
@@ -45,7 +42,7 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
         dropout_rng: jax.random.PRNGKey = None, 
         train: bool = False, 
         **kwargs
-    ) -> Union[Tuple, CausalLMOutputWithCrossAttentions]:
+    ) -> GPT2ValueRLGenerationOutput:
         # pi_beta_params, q2_head_params is optional
         pi_beta_params, base_params, q1_head_params, q2_head_params = params
         assert ((pi_beta_params is None and self.pi_beta is None) or (pi_beta_params is not None and self.pi_beta is not None))
@@ -98,8 +95,8 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
             train=train, 
             rngs={'dropout': new_dropout_rng} if train else None, 
         )
-        if self.is_cql:
-          return GPT2ValueRLGenerationOutput(logits=q1_logits, past_key_values=(None, base_kvs))
+        # if self.is_cql:
+        #   return GPT2ValueRLGenerationOutput(logits=q1_logits, past_key_values=(None, base_kvs))
         
         if not has_pi_beta:
           return GPT2ValueRLGenerationOutput(logits=value_base_outputs.logits, past_key_values=(None, base_kvs))
@@ -125,7 +122,7 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
             logits = self.beta * q_logits + pi_beta_logits
 
         return GPT2ValueRLGenerationOutput(logits=logits, past_key_values=(pi_beta_kvs, base_kvs,))
-    
+
     def init_cache(self, batch_size, max_length):
         r"""
         Args:
@@ -183,3 +180,137 @@ class GPT2ValueRLGeneration(FlaxStreamGenerationMixin, FlaxGenerationMixin):
     
     def can_generate(self) -> bool:
         return True
+
+class GPT2ValueRLGenerationQ(GPT2ValueRLGeneration):
+    def __call__(self,
+        input_ids: Optional[jnp.ndarray] = None,
+        attention_mask: Optional[jnp.ndarray] = None,
+        params: dict = None,
+        past_key_values: Optional[Tuple[Tuple[Tuple[jnp.ndarray]]]] = None,
+        dropout_rng: jax.random.PRNGKey = None,
+        train: bool = False,
+        **kwargs):
+        pi_beta_params, base_params, q1_head_params, q2_head_params = params
+        assert ((pi_beta_params is None and self.pi_beta is None) or (
+                    pi_beta_params is not None and self.pi_beta is not None))
+        has_pi_beta = pi_beta_params is not None
+
+        pi_beta_past_kvs, base_past_kvs = None, None
+        if past_key_values is not None:
+            pi_beta_past_kvs, base_past_kvs = past_key_values
+
+        new_dropout_rng = None
+        if dropout_rng is not None:
+            dropout_rng, new_dropout_rng = jax.random.split(dropout_rng)
+        value_base_outputs = self.value_base(
+            input_ids,
+            attention_mask=attention_mask,
+            past_key_values=base_past_kvs,
+            **kwargs,
+            output_hidden_states=True,
+            params=base_params,
+            dropout_rng=new_dropout_rng,
+            train=train,
+        )
+        base_hidden_states = value_base_outputs.hidden_states[-1]
+        base_kvs = value_base_outputs.past_key_values
+
+        new_dropout_rng = None
+        if dropout_rng is not None:
+            dropout_rng, new_dropout_rng = jax.random.split(dropout_rng)
+        q1_logits = self.q_head.apply(
+            freeze({'params': q1_head_params}),
+            base_hidden_states,
+            train=train,
+            rngs={'dropout': new_dropout_rng} if train else None,
+        )
+
+        if not has_pi_beta:
+            return GPT2ValueRLGenerationOutput(logits=value_base_outputs.logits, past_key_values=(None, base_kvs))
+
+        return GPT2ValueRLGenerationOutput(logits=q1_logits, past_key_values=(None, base_kvs,))
+
+
+class GPT2ValueRLGenerationReweight(GPT2ValueRLGeneration):
+    def __call__(self,
+                 input_ids: Optional[jnp.ndarray] = None,
+                 attention_mask: Optional[jnp.ndarray] = None,
+                 params: dict = None,
+                 past_key_values: Optional[Tuple[Tuple[Tuple[jnp.ndarray]]]] = None,
+                 dropout_rng: jax.random.PRNGKey = None,
+                 train: bool = False,
+                 **kwargs):
+        pi_beta_params, base_params, q1_head_params, q2_head_params = params
+        assert ((pi_beta_params is None and self.pi_beta is None) or (
+                pi_beta_params is not None and self.pi_beta is not None))
+        has_pi_beta = pi_beta_params is not None
+
+        pi_beta_past_kvs, base_past_kvs = None, None
+        if past_key_values is not None:
+            pi_beta_past_kvs, base_past_kvs = past_key_values
+
+        new_dropout_rng = None
+        if dropout_rng is not None:
+            dropout_rng, new_dropout_rng = jax.random.split(dropout_rng)
+        value_base_outputs = self.value_base(
+            input_ids,
+            attention_mask=attention_mask,
+            past_key_values=base_past_kvs,
+            **kwargs,
+            output_hidden_states=True,
+            params=base_params,
+            dropout_rng=new_dropout_rng,
+            train=train,
+        )
+        base_hidden_states = value_base_outputs.hidden_states[-1]
+        base_kvs = value_base_outputs.past_key_values
+
+        new_dropout_rng = None
+        if dropout_rng is not None:
+            dropout_rng, new_dropout_rng = jax.random.split(dropout_rng)
+        q1_logits = self.q_head.apply(
+            freeze({'params': q1_head_params}),
+            base_hidden_states,
+            train=train,
+            rngs={'dropout': new_dropout_rng} if train else None,
+        )
+
+        if not has_pi_beta:
+            return GPT2ValueRLGenerationOutput(logits=value_base_outputs.logits, past_key_values=(None, base_kvs))
+        if q2_head_params is not None:
+            new_dropout_rng = None
+            if dropout_rng is not None:
+                dropout_rng, new_dropout_rng = jax.random.split(dropout_rng)
+            q2_logits = self.q_head.apply(
+                freeze({'params': q2_head_params}),
+                base_hidden_states,
+                train=train,
+                rngs={'dropout': new_dropout_rng} if train else None,
+            )
+
+            q_logits = jnp.minimum(q1_logits, q2_logits)
+        else:
+            q_logits = q1_logits
+        if has_pi_beta:
+            new_dropout_rng = None
+            if dropout_rng is not None:
+                dropout_rng, new_dropout_rng = jax.random.split(dropout_rng)
+            pi_beta_outputs = self.pi_beta(
+                input_ids,
+                attention_mask=attention_mask,
+                past_key_values=pi_beta_past_kvs,
+                **kwargs,
+                params=pi_beta_params,
+                dropout_rng=new_dropout_rng,
+                train=train,
+            )
+            pi_beta_logits = pi_beta_outputs.logits
+            pi_beta_kvs = pi_beta_outputs.past_key_values
+        else:
+            pi_beta_logits = None
+            pi_beta_kvs = None
+        if pi_beta_logits is None:
+            logits = self.beta * q_logits
+        else:
+            logits = self.beta * q_logits + pi_beta_logits
+        return GPT2ValueRLGenerationOutput(logits=logits, past_key_values=(pi_beta_kvs, base_kvs,))

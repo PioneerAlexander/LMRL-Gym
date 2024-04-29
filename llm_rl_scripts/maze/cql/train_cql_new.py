@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 from collections import defaultdict
 import tyro
 from JaxSeq.bucket_manager import open_with_bucket as open
@@ -353,38 +353,36 @@ def main(
     # inference = GPT2ILQLInference.load_inference(value_rl_inference, target_value_rl_inference, loss_fn)
     inference = GPT2CQLInference.load_inference(
         GPT2ValueRLInference.load_inference(
-        pi_beta_params=pi_beta_params,
-        base_params=base_train_state.params, 
-        q1_head_params=q1_head_train_state.params, 
-        q2_head_params=q2_head_train_state.params, 
-        v_head_params=v_head_train_state.params, 
-        pi_beta_model=base_model,
-        base_model=base_model, 
-        q_head_model=q_head, 
-        v_head_model=v_head, 
-        tokenizer=tokenizer,  
-        beta=beta,
-        is_cql=True,
-        dp_shard_logits=True, 
-    ), 
+            pi_beta_params=pi_beta_params,
+            base_params=base_train_state.params,
+            q1_head_params=q1_head_train_state.params,
+            q2_head_params=q2_head_train_state.params,
+            v_head_params=v_head_train_state.params,
+            pi_beta_model=base_model,
+            base_model=base_model,
+            q_head_model=q_head,
+            v_head_model=v_head,
+            tokenizer=tokenizer,
+            beta=beta,
+            dp_shard_logits=True,
+        ),
         GPT2ValueRLInference.load_inference(
-        pi_beta_params=pi_beta_params,
-        base_params=target_base_params,
-        q1_head_params=q1_target_head_params,
-        q2_head_params=q2_target_head_params,
-        v_head_params=None,
-        pi_beta_model=base_model,
-        base_model=base_model,
-        q_head_model=q_head,
-        v_head_model=v_head,
-        tokenizer=tokenizer,
-        beta=beta,
-        is_cql=False,
-        dp_shard_logits=True,
-    ),
+            pi_beta_params=pi_beta_params,
+            base_params=target_base_params,
+            q1_head_params=q1_target_head_params,
+            q2_head_params=q2_target_head_params,
+            v_head_params=None,
+            pi_beta_model=base_model,
+            base_model=base_model,
+            q_head_model=q_head,
+            v_head_model=v_head,
+            tokenizer=tokenizer,
+            beta=beta,
+            dp_shard_logits=True,
+        ),
         loss_fn,
     )
-    
+
     save_dir = f"{outputs_path}/{seed}/{cql_weight}"
     exp_name = str(seed)
 
@@ -398,7 +396,7 @@ def main(
         policy_prng, new_key = jax.random.split(policy_prng)
         # embed()
         all_results = dict()
-        interactions = dict()
+
         if reranker: 
             sample_policy = ReRankerSamplePolicy(
                 proposal_fn=maze_proposal_function,
@@ -481,70 +479,110 @@ def main(
         positions = np.argwhere(maze == 0).tolist()    # note make sure to set temperature to 0
         possible_positions = list(zip(*np.where(env.maze==0)))
         for goal in env.valid_goals:
-          possible_positions.remove(tuple(goal.tolist()))        
-        results = dict()
-        avg_dict = defaultdict(float)
+          possible_positions.remove(tuple(goal.tolist()))
+
+        env_reweight = setup_maze_env(maze_name=maze_name, describe_function=describe_function, reward_function=reward_function)
+
+        possible_positions = list(zip(*np.where(env.maze == 0)))
+        for goal in env.valid_goals:
+            possible_positions.remove(tuple(goal.tolist()))
+        interactions_q = dict()
+        results_q = dict()
+        interactions_reweight = dict()
+        results_reweight = dict()
+        avg_dict_q = defaultdict(float)
+        avg_dict_reweight = defaultdict(float)
         with mesh:
-            num_correct = 0
+            num_q_correct = 0
+            num_reweight_correct = 0
             for position in positions:
+                if position[0] == goal[0] and position[1] == goal[1]:
+                    continue
                 env.position = position
+
                 observation = describe_observation_give_position(maze, position, env.goal)
                 text_history = (Text(observation, False),)
                 # embed()
                 if reranker:
-                    output = policy.act(text_history)
-                    prediction = output[-1].text
+                    raise NotImplementedError('reranker with two inferences is not implemented yet')
+                    # output = policy.act(text_history)
+                    # if isinstance(output, Tuple):
+                    #     prediction_q = output[0][-1].text
+                    #     prediction_reweight = output[1][-1].text
+                    # else:
+                    #     raise RuntimeError('Wrong inference is defined. The output should be a Tuple')
                 else:
-                    output = policy.act([text_history], done=[False])
-                    prediction = output[-1][-1].text
+                    output_q = policy.act([text_history], done=[False], as_q=True)
+                    output_reweight = policy.act([text_history], done=[False], as_reweight=True)
+
+                    prediction_q = output_q[-1][-1].text
+                    prediction_reweight = output_reweight[-1][-1].text
                 # output = policy.act(text_history)
                 # prediction = output[-1].text
-                if position[0] == goal[0] and position[1] == goal[1]:
-                    continue
-                if prediction == correct_answers[tuple(position)]:
-                    num_correct += 1
-                    print("correct!", observation, position, prediction, correct_answers[tuple(position)])
-                else:
-                    print("incorrect!", observation, position, prediction, correct_answers[tuple(position)])
-        accuracy = num_correct/(len(positions)-1)*100
-        print("Accuracy: ", accuracy)
-        wandb.log({"accuracy": accuracy})
-        # with mesh: 
-        #     raw_results, summary_results, mean_reward = text_env_eval(
-        #         env=env,
-        #         policy=sample_policy,
-        #         n_rollouts=32,
-        #         bsize=16,
-        #         env_options={"init_position": start_position},
-        #     )
-        #     wandb.log(mean_reward)
-        mean_rewards = np.empty((25,))
+                def get_score(prediction):
+                    if prediction == correct_answers[tuple(position)]:
+                        print("correct!", observation, position, prediction, correct_answers[tuple(position)])
+                        return 1
+                    else:
+                        print("incorrect!", observation, position, prediction, correct_answers[tuple(position)])
+                        return 0
+                num_q_correct += get_score(prediction_q)
+                num_reweight_correct += get_score(prediction_reweight)
+
+        accuracy_q = num_q_correct/(len(positions)-1)*100
+        print("Q sample accuracy: ", accuracy_q)
+        wandb.log({"q_accuracy": accuracy_q})
+        accuracy_reweight = num_reweight_correct / (len(positions) - 1) * 100
+        print("Reweight accuracy: ", accuracy_reweight)
+        wandb.log({"reweight_accuracy": accuracy_reweight})
+
+        mean_rewards_q = np.empty((25,))
+        mean_rewards_reweight = np.empty((25,))
         with mesh:
           for idx, position in enumerate(possible_positions):
               position = tuple(position)
-              interactions[str(position)], results[str(position)], mean_reward = text_env_eval(
+              result_q = text_env_eval(
                   env=env,
                   policy=policy,
                   n_rollouts=policy_n_rollouts, # do multiple, also do no sampling policy
                   verbose=True,
                   env_options={"init_position": position},
                   bsize=policy_bsize,
+                  as_q=True,
               )
-              mean_rewards[idx] = mean_reward["mean"]
-          for k, v in flatten_dict(results[str(position)]).items():
-              avg_dict[k] += v
-        for k, v in avg_dict.items():
-            avg_dict[k] = v/len(possible_positions)
-        results["avg_reward"] = unflatten_dict(dict(avg_dict))
-        all_results["reward_eval"] = results
-        wandb.log({"score": mean_rewards.mean(), "epoch": epoch})
+              result_reweight = text_env_eval(
+                  env=env_reweight,
+                  policy=policy,
+                  n_rollouts=policy_n_rollouts, # do multiple, also do no sampling policy
+                  verbose=True,
+                  env_options={"init_position": position},
+                  bsize=policy_bsize,
+                  as_reweight=True,
+              )
+              interactions_q[str(position)], results_q[str(position)], mean_reward_q = result_q
+              mean_rewards_q[idx] = mean_reward_q["mean"]
+              interactions_reweight[str(position)], results_reweight[str(position)], mean_rewards_reweight = result_reweight
+              mean_rewards_reweight[idx] = mean_rewards_reweight["mean"]
+          for k, v in flatten_dict(results_q[str(position)]).items():
+              avg_dict_q[k] += v
+          for k, v in flatten_dict(results_reweight[str(position)]).items():
+              avg_dict_reweight[k] += v
+        for k, v in avg_dict_q.items():
+            avg_dict_q[k] = v/len(possible_positions)
+        for k, v in avg_dict_reweight.items():
+            avg_dict_reweight[k] = v / len(possible_positions)
+
+        wandb.log({"q_score": mean_rewards_q.mean(), "epoch": epoch})
+        wandb.log({"reweight_score": mean_rewards_reweight.mean(), "epoch": epoch})
+        results_q["avg_reward"] = unflatten_dict(dict(avg_dict_q))
+        all_results["reward_eval"] = results_q
         # for item in raw_results:
         #     print('='*25)
         #     print(text_history_to_str(item[-1].post_transition_history))
         #     print('='*25)
 
         logs = pull_logs(all_results)
-        log({"sample": logs, "move_accuracy": accuracy}, use_wandb and is_main_process)
+        log({"sample": logs, "move_accuracy": accuracy_q}, use_wandb and is_main_process)
 
         return float('inf'), logs
     
