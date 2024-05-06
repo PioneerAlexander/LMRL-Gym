@@ -95,8 +95,9 @@ def td3_bc_loss(
     q2_cql_loss = (mask * q2_cql_loss).sum() / n
 
     cross_entropy = optax.softmax_cross_entropy_with_integer_labels(base_logits[:, :-1], token_ids).reshape(-1)
-    
-    bc_loss = ((-q1sa_selected + bc_weight * cross_entropy) * a_mask).sum() / n
+
+    transformed_q1sa_selected = jax.lax.stop_gradient(q1sa_selected / jax.lax.abs(q1sa_selected))
+    bc_loss = ((-transformed_q1sa_selected + bc_weight * cross_entropy) * a_mask).sum() / n
     loss = q1_loss + q2_loss + cql_weight * (q1_cql_loss + q2_cql_loss) + bc_loss
 
     logs = dict(
